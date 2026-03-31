@@ -39,6 +39,13 @@ def get_assets_dir(args_assets=None):
                 return Path(cfg["assets_path"])
         except (json.JSONDecodeError, KeyError):
             pass
+
+def get_subfolder_setting(args):
+    """Check if framed images should go in a /framed/ subfolder. CLI flag > config > default (False)."""
+    if hasattr(args, 'subfolder') and args.subfolder:
+        return True
+    cfg = load_config()
+    return cfg.get("use_subfolder", False)
     return DEFAULT_ASSETS
 
 # ── Color System ─────────────────────────────────────────────────────────────
@@ -115,13 +122,14 @@ def show_splash():
     print(f"\n  {C.bold('Apple Frames CLI')} {ver}  {author}")
     print(f"  {C.dim('Frame screenshots with Apple device bezels')}\n")
     print(f"  {C.dim('Quick start:')}")
-    print(f"    {C.cyan('frames')} screenshot.png        {C.dim('Frame a screenshot')}")
-    print(f"    {C.cyan('frames')} *.png                 {C.dim('Frame all PNGs in directory')}")
-    print(f"    {C.cyan('frames')} -m *.png              {C.dim('Frame and merge side by side')}")
-    print(f"    {C.cyan('frames')} -c random *.png       {C.dim('Random frame colors')}")
-    print(f"    {C.cyan('frames')} colors                {C.dim('Pick default colors per device')}")
-    print(f"    {C.cyan('frames')} list                  {C.dim('Show supported devices')}")
-    print(f"    {C.cyan('frames')} setup /path/to/assets  {C.dim('Configure assets folder')}")
+    print(f"    {C.cyan('frames')} screenshot.png         {C.dim('Frame a screenshot')}")
+    print(f"    {C.cyan('frames')} *.png                  {C.dim('Frame all PNGs in directory')}")
+    print(f"    {C.cyan('frames')} -m *.png               {C.dim('Frame and merge side by side')}")
+    print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
+    print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
+    print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
+    print(f"    {C.cyan('frames')} list                   {C.dim('Show supported devices')}")
+    print(f"    {C.cyan('frames')} setup /path/to/assets   {C.dim('Configure assets folder')}")
     print()
 
 # ── Frame Colors Dictionary ──────────────────────────────────────────────────
@@ -455,9 +463,11 @@ def cmd_frame(args):
 
         if args.output:
             out_dir = Path(args.output)
-            out_dir.mkdir(parents=True, exist_ok=True)
+        elif get_subfolder_setting(args):
+            out_dir = framed[0][1].parent / "framed"
         else:
             out_dir = framed[0][1].parent
+        out_dir.mkdir(parents=True, exist_ok=True)
 
         out_path = out_dir / "merged_framed.png"
         merged.save(out_path, "PNG")
@@ -478,9 +488,11 @@ def cmd_frame(args):
         for result_img, src_path, info in framed:
             if args.output:
                 out_dir = Path(args.output)
-                out_dir.mkdir(parents=True, exist_ok=True)
+            elif get_subfolder_setting(args):
+                out_dir = src_path.parent / "framed"
             else:
                 out_dir = src_path.parent
+            out_dir.mkdir(parents=True, exist_ok=True)
 
             stem = src_path.stem
             out_path = out_dir / f"{stem}_framed.png"
@@ -760,14 +772,19 @@ def cmd_setup(args):
         except json.JSONDecodeError:
             pass
     config["assets_path"] = str(assets_path)
+    if hasattr(args, 'subfolder') and args.subfolder is not None:
+        config["use_subfolder"] = args.subfolder
     with open(CONFIG_FILE, "w") as f:
         json.dump(config, f, indent=2)
+
+    subfolder_status = config.get("use_subfolder", False)
 
     print()
     print(f"  {C.green('Setup complete!')}")
     print(f"  {C.bold('Assets path:')} {assets_path}")
     print(f"  {C.bold('Frame PNGs:')}  {len(pngs)}")
     print(f"  {C.bold('Devices:')}     {device_count}")
+    print(f"  {C.bold('Subfolder:')}   {'on' if subfolder_status else 'off'} {C.dim('(save to /framed/ subfolder)')}")
     print(f"  {C.bold('Config:')}      {CONFIG_FILE}")
     print()
     print(f"  {C.dim('You can now run')} {C.cyan('frames screenshot.png')} {C.dim('from anywhere.')}")
@@ -862,6 +879,7 @@ def build_parser():
     frame_p.add_argument("--output", "-o", help="Output directory")
     frame_p.add_argument("--copy", action="store_true", help="Copy result to clipboard")
     frame_p.add_argument("--device", "-d", help="Force specific device frame")
+    frame_p.add_argument("--subfolder", "-f", action="store_true", help="Save to /framed/ subfolder")
     frame_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
 
     # List command
@@ -880,7 +898,9 @@ def build_parser():
 
     # Setup command
     setup_p = sub.add_parser("setup", help="Configure assets directory path")
-    setup_p.add_argument("path", help="Path to NewFrames assets folder")
+    setup_p.add_argument("path", help="Path to Frames assets folder")
+    setup_p.add_argument("--subfolder", action="store_true", default=None, help="Save framed images to /framed/ subfolder")
+    setup_p.add_argument("--no-subfolder", action="store_false", dest="subfolder", help="Save framed images next to originals (default)")
 
     return p
 

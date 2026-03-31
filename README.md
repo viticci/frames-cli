@@ -1,36 +1,59 @@
-# Apple Frames CLI
+```
+ █████  ██████  ██████  ██      ███████
+██   ██ ██   ██ ██   ██ ██      ██
+███████ ██████  ██████  ██      █████
+██   ██ ██      ██      ██      ██
+██   ██ ██      ██      ███████ ███████
 
-A Python command-line tool that frames device screenshots with Apple product bezels. It auto-detects devices from screenshot dimensions, applies colored frames with transparency masks, and can merge multiple framed screenshots side by side. Built as the terminal/AI-agent counterpart to the [Apple Frames](https://www.macstories.net/tag/apple-frames/) shortcut by Federico Viticci.
+███████ ██████   █████  ███    ███ ███████ ███████
+██      ██   ██ ██   ██ ████  ████ ██      ██
+█████   ██████  ███████ ██ ████ ██ █████   ███████
+██      ██   ██ ██   ██ ██  ██  ██ ██           ██
+██      ██   ██ ██   ██ ██      ██ ███████ ███████
+```
 
-## Installation
+Frame device screenshots with Apple product bezels from the command line. Auto-detects devices, supports colors, merging, and batch processing. By Federico Viticci.
 
-**Requirements:** Python 3 and [Pillow](https://pillow.readthedocs.io/).
+---
+
+## Requirements
+
+- Python 3
+- [Pillow](https://pillow.readthedocs.io/)
 
 ```bash
 pip3 install Pillow
 ```
 
-**Install the CLI:**
+---
+
+## Installation
+
+**1. Copy the CLI to your PATH:**
 
 ```bash
 cp frames ~/bin/frames
 chmod +x ~/bin/frames
 ```
 
-**Set up assets:**
+**2. Set up assets:**
 
-The CLI needs Apple device frame PNGs and a `NewFrames.json` dictionary. If you already have the Apple Frames shortcut installed, the assets are in your Shortcuts iCloud container:
+The CLI needs the Apple Frames asset folder (frame PNGs + `NewFrames.json`). If you have the Apple Frames shortcut installed, the assets are already in your Shortcuts iCloud container:
 
 ```bash
 frames setup ~/Library/Mobile\ Documents/iCloud~is~workflow~my~workflows/Documents/Frames
 ```
 
-This saves the path to `~/.config/frames/config.json` so you never have to specify it again.
+This writes the path to `~/.config/frames/config.json`. You only need to run this once.
+
+You can also set the `FRAMES_ASSETS` environment variable instead of using the config file.
+
+---
 
 ## Quick Start
 
 ```bash
-# Frame a screenshot (auto-detects device, saves as name_framed.png)
+# Frame a screenshot — auto-detects device, saves as name_framed.png
 frames screenshot.png
 
 # Frame all PNGs in a directory
@@ -47,38 +70,159 @@ frames -m screenshot1.png screenshot2.png
 
 # Copy framed result to clipboard (macOS)
 frames --copy screenshot.png
+
+# Save to /framed/ subfolder
+frames -f screenshot.png
+
+# Show device info without framing
+frames info screenshot.png
+
+# List all supported devices
+frames list
 ```
+
+---
 
 ## Commands
 
-### `frame` (default)
+### Default framing
 
-Frame one or more screenshots. This is the default command — you can omit the `frame` keyword.
+Frame one or more screenshots. The `frame` keyword is optional — passing files directly uses it automatically.
 
 ```bash
-frames screenshot.png                    # Same as: frames frame screenshot.png
-frames -c Silver -m -o ~/output/ *.png
+frames screenshot.png
+frames frame screenshot.png   # same thing
+
+# With flags
+frames -c "Desert Titanium" -o ~/output/ *.png
+frames -m -s 80 screenshot1.png screenshot2.png
 ```
+
+**Output naming:** `originalname_framed.png` in the same directory as the source. Merged output is `merged_framed.png`.
+
+**Device detection:** Automatic from screenshot pixel width. When multiple devices share a width, height disambiguates. The newest device frame is used when multiple generations share a resolution — override with `--device`.
+
+**Color resolution:** `--color` flag > user default (set via `colors` command) > first color in device's list.
+
+---
+
+### `--color` / `-c`
+
+Specify a frame color by name, 1-based index, or `random`.
+
+```bash
+frames -c "Cosmic Orange" screenshot.png
+frames -c 2 screenshot.png
+frames -c random *.png
+```
+
+Partial color name matching is supported. Use `list-colors` to see what's available for a device.
+
+---
+
+### `--merge` / `-m` and `--spacing` / `-s`
+
+Merge all framed images into a single horizontal strip. Default spacing between frames is 60px.
+
+```bash
+frames -m screenshot1.png screenshot2.png screenshot3.png
+frames -m -s 120 screenshot1.png screenshot2.png
+```
+
+The merged output is saved as `merged_framed.png` in the output directory.
+
+---
+
+### `--subfolder` / `-f`
+
+Save framed images to a `/framed/` subfolder relative to the source file's directory, instead of next to the originals. The subfolder name is configurable via `setup`.
+
+```bash
+frames -f screenshot.png
+# saves to ./framed/screenshot_framed.png
+
+frames -f *.png
+# saves all to ./framed/
+```
+
+To make subfolder mode the default, run `frames setup --subfolder`. To revert, run `frames setup --no-subfolder`.
+
+---
+
+### `--output` / `-o`
+
+Save framed images to a specific output directory.
+
+```bash
+frames -o ~/Desktop/framed/ screenshot.png
+frames -o /tmp/output/ *.png
+```
+
+---
+
+### `--copy`
+
+Copy the framed image directly to the macOS clipboard. Works with a single image only.
+
+```bash
+frames --copy screenshot.png
+```
+
+---
+
+### `--device` / `-d`
+
+Force a specific device frame instead of auto-detecting from the screenshot dimensions. Useful when multiple devices share a resolution.
+
+```bash
+frames -d "iPhone 17 Pro Portrait" screenshot.png
+frames -d "MacBook Pro M5 14" screenshot.png
+```
+
+Use `frames list` to see exact device names.
+
+---
+
+### `--json`
+
+Output machine-readable JSON instead of human-readable text. Designed for AI agent pipelines and scripting.
+
+```bash
+frames --json screenshot.png
+# → {"source": "screenshot.png", "device": "iPhone 17 Pro Portrait", "color": "Cosmic Orange", "output": "/path/to/screenshot_framed.png", ...}
+
+frames --json -m screenshot1.png screenshot2.png
+# → {"merged": "/path/to/merged_framed.png", "count": 2, "frames": [...]}
+
+frames --json info screenshot.png
+# → {"file": "screenshot.png", "device": "iPhone 17 Pro Portrait", "width": 1290, "height": 2796, ...}
+```
+
+---
 
 ### `list`
 
-List all supported devices, grouped by category, with pixel widths and available color counts.
+List all supported devices grouped by category. Shows pixel dimensions and available color counts.
 
 ```bash
 frames list
 ```
 
+---
+
 ### `colors`
 
-Interactive TUI color picker (curses). Navigate with arrow keys, select with space, save with enter. Sets per-device default colors stored in `~/.config/frames/config.json`.
+Interactive TUI color picker (curses). Navigate with arrow keys, select with space, confirm with enter. Sets per-device default colors stored in `~/.config/frames/config.json`.
 
 ```bash
 frames colors
 ```
 
+---
+
 ### `list-colors`
 
-Show available colors for a specific device. Supports partial name matching.
+Show all available colors for a specific device. Supports partial name matching.
 
 ```bash
 frames list-colors "17 Pro"
@@ -86,53 +230,39 @@ frames list-colors "MacBook"
 frames list-colors "Watch Ultra"
 ```
 
+---
+
 ### `info`
 
-Detect the device for a screenshot without framing it. Shows device name, coordinates, available colors, mask/resize info.
+Detect the device for a screenshot without framing it. Shows device name, pixel dimensions, available colors, mask and resize info.
 
 ```bash
 frames info screenshot.png
 frames --json info screenshot.png
 ```
 
+---
+
 ### `setup`
 
-Configure the path to the NewFrames assets folder. Validates that `NewFrames.json` exists and reports asset counts.
+Configure the path to the NewFrames assets folder. Validates that `NewFrames.json` exists and reports asset counts. Also controls the subfolder default behavior.
 
 ```bash
 frames setup /path/to/NewFrames
+frames setup --subfolder /path/to/NewFrames     # enable subfolder mode by default
+frames setup --no-subfolder /path/to/NewFrames  # disable subfolder mode (default)
 ```
 
-## Flags
-
-| Flag | Short | Description |
-|------|-------|-------------|
-| `--color` | `-c` | Frame color: name (e.g. `"Cosmic Orange"`), 1-based index, or `random` |
-| `--merge` | `-m` | Merge all framed images into a single horizontal strip |
-| `--spacing` | `-s` | Pixel spacing between merged frames (default: 60) |
-| `--output` | `-o` | Output directory (default: same directory as source) |
-| `--copy` | | Copy result to macOS clipboard (single image only) |
-| `--device` | `-d` | Force a specific device frame instead of auto-detecting |
-| `--json` | | Machine-readable JSON output |
-| `--verbose` | `-v` | Verbose output (shows resize, mask, variant info) |
-| `--assets` | | Override assets directory for this invocation |
-| `--no-color` | | Disable ANSI color output (also respects `NO_COLOR` env) |
-| `--version` | | Print version and exit |
-
-## Default Behavior
-
-- **Output naming:** `originalname_framed.png` in the same directory as the source file. Merged output is `merged_framed.png`.
-- **Device detection:** Automatic from screenshot pixel width. When multiple devices share a width, height is used to disambiguate.
-- **Color resolution:** CLI `--color` flag > user defaults (set via `colors` command) > first color in the device's list.
-- **Variant resolution:** When multiple device generations share a resolution (e.g. iPhone 16 Pro and 17 Pro), the newest device frame is used by default. Override with `--device`.
+---
 
 ## Configuration
 
-The `setup` command and `colors` command write to `~/.config/frames/config.json`:
+The `setup` and `colors` commands write to `~/.config/frames/config.json`:
 
 ```json
 {
   "assets_path": "/path/to/NewFrames",
+  "use_subfolder": false,
   "default_colors": {
     "iPhone 17 Pro": "Deep Blue",
     "MacBook Pro M5 14": "Space Black"
@@ -140,30 +270,34 @@ The `setup` command and `colors` command write to `~/.config/frames/config.json`
 }
 ```
 
-You can also set the assets path via the `FRAMES_ASSETS` environment variable, which takes precedence over the config file.
+**Assets priority order:** `--assets` flag > `FRAMES_ASSETS` env var > config file > default iCloud Shortcuts path.
 
-**Priority order for assets:** `--assets` flag > `FRAMES_ASSETS` env var > config file > default iCloud Shortcuts path.
+**Color priority order:** `--color` flag > config default (set via `colors` command) > first color in device list.
 
-**Priority order for colors:** `--color` flag > config default > first color in device list.
+The `FRAMES_ASSETS` environment variable takes precedence over the config file and is useful for CI or non-standard setups:
+
+```bash
+FRAMES_ASSETS=/path/to/assets frames screenshot.png
+```
+
+---
 
 ## For AI Agents
 
-Use `--json` for machine-readable output in pipelines:
+The `--json` flag makes `frames` pipeline-friendly. All output goes to stdout; errors go to stderr.
 
 ```bash
-# Frame and get output path
-frames --json screenshot.png
-# → {"source": "screenshot.png", "device": "iPhone 17 Pro Portrait", "color": "Cosmic Orange", ...}
+# Frame a screenshot, capture the output path
+OUTPUT=$(frames --json screenshot.png | python3 -c "import sys,json; print(json.load(sys.stdin)['output'])")
 
-# Get device info
+# Get device info as JSON
 frames --json info screenshot.png
 
 # Frame and merge, get merged path
 frames --json -m *.png
-# → {"merged": "/path/to/merged_framed.png", "count": 3, "frames": [...]}
 ```
 
-**Batch processing pattern:**
+**Batch processing patterns:**
 
 ```bash
 # Frame everything into a separate directory
@@ -174,23 +308,32 @@ frames -m -o ~/framed/ ~/screenshots/*.png
 
 # Random colors for visual variety
 frames -c random -o ~/framed/ ~/screenshots/*.png
+
+# Subfolder mode — outputs land in ./framed/ next to sources
+frames -f ~/screenshots/*.png
 ```
+
+**Claude Code skill:** A skill file is included in `skill/SKILL.md`. Install it to `~/.claude/skills/frames-cli/SKILL.md` to give Claude Code native awareness of the CLI, its flags, and batch patterns.
+
+---
 
 ## Supported Devices
 
-| Category | Devices | Colors |
-|----------|---------|--------|
-| iPhone 17 | 17, 17 Pro, 17 Pro Max (portrait + landscape) | 3-5 per model |
-| iPhone Air | Air (portrait + landscape) | 4 |
-| iPhone 16 | 16, 16 Plus, 16 Pro, 16 Pro Max (portrait + landscape) | 4-5 per model |
-| iPhone 12-13 | 12/13 family | varies |
-| iPhone 8/SE | iPhone 8, SE | varies |
-| iPad | Pro (2018-2024), Air, mini | varies |
-| MacBook | Neo, Pro M5 14"/16", Pro 2021, Air M5 13"/15" | 2-4 per model |
-| iMac | iMac 2021 | 7 |
-| Apple Watch | Series 7-10, Ultra, Ultra 3 | varies (including band combos) |
+| Category | Devices | Notes |
+|----------|---------|-------|
+| iPhone 17 | 17, 17 Pro, 17 Pro Max | Portrait + landscape |
+| iPhone Air | Air | Portrait + landscape |
+| iPhone 16 | 16, 16 Plus, 16 Pro, 16 Pro Max | Portrait + landscape |
+| iPhone 12-13 | 12/13 mini, 12/13, 12/13 Pro, 12/13 Pro Max | Portrait + landscape |
+| iPhone 8 / SE | iPhone 8, SE | Portrait |
+| iPad | Pro 11" / 13" (2018-2024), Air, mini | Portrait + landscape |
+| MacBook | Neo, Air M5 13"/15", Pro M5 14"/16", Pro 2021, Air 2020-2022, Pro 13 | Front-facing |
+| iMac | iMac 2021 | 7 colors |
+| Apple Watch | Ultra 3, Ultra 2024, Series 10, Series 7 | Including band combinations |
 
-All devices support portrait and landscape orientations where applicable. Watch Ultra 3 has 13 case + band combinations.
+Watch Ultra 3 supports 13 case + band combinations. All devices that have landscape variants support both orientations.
+
+---
 
 ## Credits
 
