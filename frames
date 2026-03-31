@@ -1,0 +1,947 @@
+#!/usr/bin/env python3
+"""frames — Apple Frames CLI v1.0.0
+
+Frame device screenshots with Apple product bezels. Auto-detects devices from
+screenshot dimensions, applies colored frames with masks, merges multiple
+screenshots side by side. Replicates Apple Frames shortcut functionality for
+use in terminal workflows and AI agent pipelines.
+
+Assets are read from the Shortcuts iCloud container (NewFrames folder).
+"""
+
+import argparse, curses, json, os, random, re, subprocess, sys
+from pathlib import Path
+
+try:
+    from PIL import Image
+except ImportError:
+    print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
+    sys.exit(1)
+
+VERSION = "1.0.0"
+HOME = Path.home()
+CONFIG_DIR = HOME / ".config" / "frames"
+CONFIG_FILE = CONFIG_DIR / "config.json"
+DEFAULT_ASSETS = HOME / "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames"
+
+def get_assets_dir(args_assets=None):
+    """Resolve assets directory: CLI flag > env var > config file > default."""
+    if args_assets and args_assets != str(DEFAULT_ASSETS):
+        return Path(args_assets)
+    env = os.environ.get("FRAMES_ASSETS")
+    if env:
+        return Path(env)
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                cfg = json.load(f)
+            if "assets_path" in cfg:
+                return Path(cfg["assets_path"])
+        except (json.JSONDecodeError, KeyError):
+            pass
+    return DEFAULT_ASSETS
+
+# ── Color System ─────────────────────────────────────────────────────────────
+
+class C:
+    """ANSI color helpers. Respects NO_COLOR env and --no-color flag."""
+    enabled = True
+
+    @staticmethod
+    def _c(code, text):
+        return f"\033[{code}m{text}\033[0m" if C.enabled else str(text)
+
+    @staticmethod
+    def red(t):     return C._c("31", t)
+    @staticmethod
+    def green(t):   return C._c("32", t)
+    @staticmethod
+    def yellow(t):  return C._c("33", t)
+    @staticmethod
+    def blue(t):    return C._c("34", t)
+    @staticmethod
+    def magenta(t): return C._c("35", t)
+    @staticmethod
+    def cyan(t):    return C._c("36", t)
+    @staticmethod
+    def dim(t):     return C._c("2", t)
+    @staticmethod
+    def bold(t):    return C._c("1", t)
+    @staticmethod
+    def rgb(r, g, b, t):
+        return f"\033[38;2;{r};{g};{b}m{t}\033[0m" if C.enabled else str(t)
+
+# ── Splash Screen ────────────────────────────────────────────────────────────
+
+LOGO_LINES = [
+    r" █████  ██████  ██████  ██      ███████ ",
+    r"██   ██ ██   ██ ██   ██ ██      ██      ",
+    r"███████ ██████  ██████  ██      █████   ",
+    r"██   ██ ██      ██      ██      ██      ",
+    r"██   ██ ██      ██      ███████ ███████ ",
+    r"",
+    r"███████ ██████   █████  ███    ███ ███████ ███████ ",
+    r"██      ██   ██ ██   ██ ████  ████ ██      ██      ",
+    r"█████   ██████  ███████ ██ ████ ██ █████   ███████ ",
+    r"██      ██   ██ ██   ██ ██  ██  ██ ██           ██ ",
+    r"██      ██   ██ ██   ██ ██      ██ ███████ ███████ ",
+]
+
+LOGO_COLORS = [
+    (232, 114, 42),   # Cosmic Orange
+    (235, 125, 50),
+    (238, 136, 58),
+    (235, 125, 50),
+    (232, 114, 42),
+    (0, 0, 0),
+    (232, 114, 42),
+    (235, 125, 50),
+    (238, 136, 58),
+    (235, 125, 50),
+    (232, 114, 42),
+]
+
+def show_splash():
+    """Display colored ASCII art splash screen."""
+    print()
+    for line, (r, g, b) in zip(LOGO_LINES, LOGO_COLORS):
+        if line:
+            print(f"  {C.rgb(r, g, b, line)}")
+        else:
+            print()
+
+    ver = C.dim(f"v{VERSION}")
+    author = C.dim("by Federico Viticci")
+    print(f"\n  {C.bold('Apple Frames CLI')} {ver}  {author}")
+    print(f"  {C.dim('Frame screenshots with Apple device bezels')}\n")
+    print(f"  {C.dim('Quick start:')}")
+    print(f"    {C.cyan('frames')} screenshot.png        {C.dim('Frame a screenshot')}")
+    print(f"    {C.cyan('frames')} *.png                 {C.dim('Frame all PNGs in directory')}")
+    print(f"    {C.cyan('frames')} -m *.png              {C.dim('Frame and merge side by side')}")
+    print(f"    {C.cyan('frames')} -c random *.png       {C.dim('Random frame colors')}")
+    print(f"    {C.cyan('frames')} colors                {C.dim('Pick default colors per device')}")
+    print(f"    {C.cyan('frames')} list                  {C.dim('Show supported devices')}")
+    print(f"    {C.cyan('frames')} setup /path/to/assets  {C.dim('Configure assets folder')}")
+    print()
+
+# ── Frame Colors Dictionary ──────────────────────────────────────────────────
+
+FRAME_COLORS = {
+    "iPhone 17 Pro Portrait":      ["Cosmic Orange", "Deep Blue", "Silver"],
+    "iPhone 17 Pro Landscape":     ["Cosmic Orange", "Deep Blue", "Silver"],
+    "iPhone 17 Pro Max Portrait":  ["Cosmic Orange", "Deep Blue", "Silver"],
+    "iPhone 17 Pro Max Landscape": ["Cosmic Orange", "Deep Blue", "Silver"],
+    "iPhone 17 Portrait":          ["Black", "Lavender", "Mist Blue", "Sage", "White"],
+    "iPhone 17 Landscape":         ["Black", "Lavender", "Mist Blue", "Sage", "White"],
+    "iPhone Air Portrait":         ["Black", "White", "Gold", "Blue"],
+    "iPhone Air Landscape":        ["Black", "White", "Gold", "Blue"],
+    "MacBook Pro M5 14":           ["Silver", "Space Black"],
+    "MacBook Pro M5 16":           ["Silver", "Space Black"],
+    "MacBook Neo":                 ["Blush", "Citrus", "Indigo", "Silver"],
+    "iPhone 16 Pro Portrait":      ["Natural", "Desert", "Black", "White"],
+    "iPhone 16 Pro Landscape":     ["Natural", "Desert", "Black", "White"],
+    "iPhone 16 Pro Max Portrait":  ["White", "Desert", "Natural", "Black"],
+    "iPhone 16 Pro Max Landscape": ["Black", "Desert", "Natural", "White"],
+    "iPhone 16 Portrait":          ["Ultramarine", "Teal", "Pink", "Black", "White"],
+    "iPhone 16 Landscape":         ["Ultramarine", "Teal", "Pink", "Black", "White"],
+    "iPhone 16 Plus Portrait":     ["Ultramarine", "White", "Teal", "Pink", "Black"],
+    "iPhone 16 Plus Landscape":    ["Ultramarine", "Teal", "Pink", "Black", "White"],
+    "Watch Ultra 3":               ["Black + Alpine Loop Black", "Black + Alpine Loop Light Blue", "Black + Milanese Loop", "Black + Ocean Band Anchor Blue", "Black + Ocean Band Black", "Black + Trail Loop Black Charcoal", "Natural + Alpine Loop Light Blue", "Natural + Alpine Loop Terra Cotta", "Natural + Milanese Loop", "Natural + Ocean Band Anchor Blue", "Natural + Ocean Band Neon Green", "Natural + Trail Loop Blue Bright Blue", "Natural + Trail Loop Green Neon"],
+    "Watch Ultra 2024":            ["Orange Beige Trail Loop", "Blue Alpine Loop"],
+    "MacBook Air M5 13":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
+    "MacBook Air M5 15":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
+    "iMac 2021":                   ["Blue", "Green", "Pink", "Silver", "Yellow", "Orange", "Purple"],
+}
+
+# Frame Variants: first item = default device
+FRAME_VARIANTS = {
+    "iPhone 17 Portrait":          ["iPhone 17 Pro Portrait", "iPhone 17 Portrait", "iPhone 16 Pro Portrait"],
+    "iPhone 17 Landscape":         ["iPhone 17 Pro Landscape", "iPhone 17 Landscape", "iPhone 16 Pro Landscape"],
+    "iPhone 17 Pro Max Portrait":  ["iPhone 17 Pro Max Portrait", "iPhone 16 Pro Max Portrait"],
+    "iPhone 17 Pro Max Landscape": ["iPhone 17 Pro Max Landscape", "iPhone 16 Pro Max Landscape"],
+    "iPhone 16 Portrait":          ["iPhone 16 Portrait", "iPhone 15 Pro Portrait"],
+    "iPhone 16 Landscape":         ["iPhone 16 Landscape", "iPhone 15 Pro Landscape"],
+    "iPhone 16 Plus Portrait":     ["iPhone 16 Plus Portrait", "iPhone 15 Pro Max Portrait"],
+    "iPhone 16 Plus Landscape":    ["iPhone 16 Plus Landscape", "iPhone 15 Pro Max Landscape"],
+    "MacBook Pro M5 14":           ["MacBook Pro M5 14", "MacBook Pro 2021 14"],
+    "MacBook Pro M5 16":           ["MacBook Pro M5 16", "MacBook Pro 2021 16"],
+    "MacBook Air M5 13":           ["MacBook Air M5 13", "MacBook Air 2022"],
+}
+
+# ── Core Engine ──────────────────────────────────────────────────────────────
+
+def load_json(assets_dir):
+    """Load the device dictionary from NewFrames.json."""
+    json_path = assets_dir / "NewFrames.json"
+    if not json_path.exists():
+        print(f"{C.red('Error')}: NewFrames.json not found at {json_path}", file=sys.stderr)
+        sys.exit(1)
+    with open(json_path) as f:
+        return json.load(f)
+
+def detect_device(img, device_dict):
+    """Detect device from screenshot dimensions using width + overlap height check."""
+    w, h = img.size
+    width_key = str(w)
+
+    if width_key not in device_dict:
+        return None, None
+
+    entry = device_dict[width_key]
+
+    # Check overlap (height disambiguation)
+    if "overlap" in entry:
+        height_key = str(h)
+        if height_key in entry["overlap"]:
+            entry = entry["overlap"][height_key]
+
+    return entry, entry["name"]
+
+def resolve_variant(model_name, device_dict):
+    """Apply variant resolution — first item in variant array is the default."""
+    if model_name not in FRAME_VARIANTS:
+        return None, model_name
+
+    variants = FRAME_VARIANTS[model_name]
+    default_variant = variants[0]
+
+    if default_variant != model_name:
+        # Load variant device data from JSON
+        variant_key = f"variants.{default_variant}"
+        # Try dot notation first, then nested
+        if "variants" in device_dict and default_variant in device_dict["variants"]:
+            variant_data = device_dict["variants"][default_variant]
+            return variant_data, variant_data["name"]
+
+    return None, model_name
+
+def load_config():
+    """Load user config from ~/.config/frames/config.json."""
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            pass
+    return {}
+
+def save_config(config):
+    """Save user config."""
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+def get_color(model_name, color_arg):
+    """Resolve frame color for a device. Checks: CLI arg > user config > first in list."""
+    if model_name not in FRAME_COLORS:
+        return None
+
+    colors = FRAME_COLORS[model_name]
+    if not colors:
+        return None
+
+    if color_arg == "random":
+        return random.choice(colors)
+    elif color_arg:
+        for c in colors:
+            if c.lower() == color_arg.lower():
+                return c
+        try:
+            idx = int(color_arg) - 1
+            if 0 <= idx < len(colors):
+                return colors[idx]
+        except ValueError:
+            pass
+        print(f"{C.yellow('Warning')}: Color '{color_arg}' not found for {model_name}. Using default.", file=sys.stderr)
+
+    # Check user config for saved default
+    cfg = load_config()
+    user_defaults = cfg.get("default_colors", {})
+    # Strip orientation for lookup (user sets "iPhone 17 Pro" not "iPhone 17 Pro Portrait")
+    base = model_name.replace(" Portrait", "").replace(" Landscape", "")
+    if base in user_defaults:
+        saved = user_defaults[base]
+        if saved in colors:
+            return saved
+
+    return colors[0]  # Fallback = first color
+
+def load_frame(assets_dir, model_name, color):
+    """Load the frame PNG for a device + color."""
+    if color:
+        frame_path = assets_dir / f"{model_name} {color}.png"
+        if not frame_path.exists():
+            # Fall back to colorless
+            frame_path = assets_dir / f"{model_name}.png"
+    else:
+        frame_path = assets_dir / f"{model_name}.png"
+
+    if not frame_path.exists():
+        return None, str(frame_path)
+
+    return Image.open(frame_path).convert("RGBA"), str(frame_path)
+
+def load_mask(assets_dir, model_name):
+    """Load mask PNG if it exists."""
+    mask_path = assets_dir / f"{model_name}_mask.png"
+    if mask_path.exists():
+        return Image.open(mask_path).convert("RGBA")
+    return None
+
+def apply_mask(screenshot, mask):
+    """Apply mask to screenshot — black pixels in mask make screenshot transparent."""
+    r, g, b, a = screenshot.split()
+    mask_r = mask.split()[0]  # R channel: 0=clip, 255=keep
+    return Image.merge("RGBA", (r, g, b, mask_r))
+
+def composite(screenshot, frame, x, y):
+    """Two-step overlay compositing (Apple Frames method)."""
+    result = frame.copy()
+    result.paste(screenshot, (x, y), screenshot)
+    result.paste(frame, (0, 0), frame)
+    return result
+
+def merge_images(images, spacing=60):
+    """Merge multiple images horizontally with spacing."""
+    if len(images) == 1:
+        return images[0]
+
+    total_width = sum(img.width for img in images) + spacing * (len(images) - 1)
+    max_height = max(img.height for img in images)
+
+    merged = Image.new("RGBA", (total_width, max_height), (0, 0, 0, 0))
+    x_offset = 0
+    for img in images:
+        # Center vertically
+        y_offset = (max_height - img.height) // 2
+        merged.paste(img, (x_offset, y_offset), img)
+        x_offset += img.width + spacing
+
+    return merged
+
+def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_device=None, verbose=False):
+    """Frame a single screenshot. Returns (framed_image, device_info_dict) or raises."""
+    img = Image.open(img_path).convert("RGBA")
+    w, h = img.size
+
+    # 1. Device detection
+    if force_device:
+        # Find the device in JSON by name
+        entry = None
+        for key, val in device_dict.items():
+            if key == "variants":
+                continue
+            if val.get("name") == force_device:
+                entry = val
+                break
+        if not entry:
+            # Check variants
+            if "variants" in device_dict and force_device in device_dict["variants"]:
+                entry = device_dict["variants"][force_device]
+        if not entry:
+            raise ValueError(f"Device '{force_device}' not found in dictionary")
+        model_name = entry["name"]
+    else:
+        entry, model_name = detect_device(img, device_dict)
+        if not entry:
+            raise ValueError(f"Unknown device for {w}x{h} screenshot. Use 'frames list' to see supported devices.")
+
+    # 2. Variant resolution
+    variant_data, model_name = resolve_variant(model_name, device_dict)
+    if variant_data:
+        entry = variant_data
+        if verbose:
+            print(f"  {C.dim('Variant resolved:')} {model_name}")
+
+    # 3. Color
+    has_colors = entry.get("colors") == "yes"
+    color = get_color(model_name, color_arg) if has_colors else None
+
+    # 4. Resize (for More Space resolutions)
+    resize_width = entry.get("resizeWidth")
+    if resize_width:
+        resize_width = int(resize_width)
+        ratio = resize_width / img.width
+        new_h = int(img.height * ratio)
+        img = img.resize((resize_width, new_h), Image.LANCZOS)
+        if verbose:
+            print(f"  {C.dim('Resized:')} {w}x{h} → {resize_width}x{new_h}")
+
+    # 5. Load frame
+    frame, frame_path = load_frame(assets_dir, model_name, color)
+    if not frame:
+        raise FileNotFoundError(f"Frame asset not found: {frame_path}")
+
+    # 6. Apply mask
+    has_mask = entry.get("mask") == "yes"
+    if has_mask:
+        mask = load_mask(assets_dir, model_name)
+        if mask:
+            # Ensure mask matches screenshot dimensions
+            if mask.size != img.size:
+                mask = mask.resize(img.size, Image.LANCZOS)
+            img = apply_mask(img, mask)
+            if verbose:
+                print(f"  {C.dim('Mask applied')}")
+
+    # 7. Composite
+    x, y = int(entry["x"]), int(entry["y"])
+    result = composite(img, frame, x, y)
+
+    info = {
+        "source": str(img_path),
+        "device": model_name,
+        "color": color,
+        "dimensions": f"{w}x{h}",
+        "frame_size": f"{result.width}x{result.height}",
+        "resized": bool(resize_width),
+        "masked": has_mask,
+    }
+
+    return result, info
+
+# ── CLI Commands ─────────────────────────────────────────────────────────────
+
+def cmd_frame(args):
+    """Frame one or more screenshots."""
+    assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
+    device_dict = load_json(assets_dir)
+
+    if not args.files:
+        print(f"{C.red('Error')}: No input files specified.", file=sys.stderr)
+        sys.exit(1)
+
+    framed = []
+    infos = []
+
+    for fpath in args.files:
+        p = Path(fpath)
+        if not p.exists():
+            print(f"{C.red('Error')}: File not found: {fpath}", file=sys.stderr)
+            continue
+        if not p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.heic', '.tiff', '.webp'):
+            print(f"{C.yellow('Skipping')}: {fpath} (not an image)", file=sys.stderr)
+            continue
+
+        try:
+            if not args.json:
+                print(f"  {C.dim('Framing')} {p.name}...", end=" ", flush=True)
+
+            result, info = frame_screenshot(
+                p, assets_dir, device_dict,
+                color_arg=args.color,
+                force_device=args.device,
+                verbose=args.verbose
+            )
+            framed.append((result, p, info))
+            infos.append(info)
+
+            if not args.json:
+                color_str = f" ({C.rgb(235, 125, 40, info['color'])})" if info["color"] else ""
+                print(f"{C.green(info['device'])}{color_str}")
+
+        except (ValueError, FileNotFoundError) as e:
+            print(f"{C.red('Error')}: {e}", file=sys.stderr)
+            continue
+
+    if not framed:
+        print(f"{C.red('No screenshots were framed.')}", file=sys.stderr)
+        sys.exit(1)
+
+    # Merge if requested
+    if args.merge and len(framed) > 1:
+        images = [f[0] for f in framed]
+        merged = merge_images(images, spacing=args.spacing)
+
+        if args.output:
+            out_dir = Path(args.output)
+            out_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            out_dir = framed[0][1].parent
+
+        out_path = out_dir / "merged_framed.png"
+        merged.save(out_path, "PNG")
+
+        if not args.json:
+            print(f"\n  {C.green('Merged')} {len(framed)} frames → {C.bold(str(out_path))}")
+
+        if args.copy:
+            copy_to_clipboard(out_path)
+
+        if args.json:
+            result_json = {"merged": str(out_path), "count": len(framed), "frames": infos}
+            print(json.dumps(result_json, indent=2))
+
+    else:
+        # Save individual framed images
+        outputs = []
+        for result_img, src_path, info in framed:
+            if args.output:
+                out_dir = Path(args.output)
+                out_dir.mkdir(parents=True, exist_ok=True)
+            else:
+                out_dir = src_path.parent
+
+            stem = src_path.stem
+            out_path = out_dir / f"{stem}_framed.png"
+            result_img.save(out_path, "PNG")
+            info["output"] = str(out_path)
+            outputs.append(str(out_path))
+
+            if not args.json:
+                print(f"  {C.dim('→')} {C.bold(str(out_path))}")
+
+        if args.copy and len(outputs) == 1:
+            copy_to_clipboard(Path(outputs[0]))
+
+        if args.json:
+            if len(infos) == 1:
+                print(json.dumps(infos[0], indent=2))
+            else:
+                print(json.dumps({"frames": infos}, indent=2))
+
+    if not args.json:
+        print()
+
+def cmd_list(args):
+    """List all supported devices."""
+    assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
+    device_dict = load_json(assets_dir)
+
+    print(f"\n  {C.bold('Supported Devices')}\n")
+
+    # Group by category
+    categories = {
+        "iPhone 17": [], "iPhone Air": [], "iPhone 16": [],
+        "iPhone 12-13": [], "iPhone 8": [],
+        "iPad": [], "MacBook": [], "iMac": [], "Watch": [],
+    }
+
+    for key in sorted(device_dict.keys(), key=lambda k: int(k) if k != "variants" else 0):
+        if key == "variants":
+            continue
+        entry = device_dict[key]
+        name = entry["name"]
+        has_colors = entry.get("colors") == "yes"
+        has_mask = entry.get("mask") == "yes"
+        resize = entry.get("resizeWidth")
+
+        for cat in categories:
+            if name.startswith(cat) or (cat == "MacBook" and "MacBook" in name) or (cat == "Watch" and "Watch" in name):
+                flags = []
+                if has_colors:
+                    colors = FRAME_COLORS.get(name, [])
+                    flags.append(f"{len(colors)} colors")
+                if resize:
+                    flags.append("scaled")
+                flag_str = C.dim(f" ({', '.join(flags)})") if flags else ""
+                categories[cat].append(f"    {C.cyan(f'{key:>5}px')} → {name}{flag_str}")
+                break
+
+    for cat, entries in categories.items():
+        if entries:
+            print(f"  {C.bold(cat)}")
+            for e in entries:
+                print(e)
+            print()
+
+    # Show variant defaults
+    print(f"  {C.bold('Default Variants')} {C.dim('(newest device used automatically)')}")
+    for primary, variants in FRAME_VARIANTS.items():
+        default = variants[0]
+        if default != primary:
+            print(f"    {C.dim(primary)} → {C.green(default)}")
+    print()
+
+def cmd_list_colors(args):
+    """List colors for a specific device (partial match)."""
+    device = args.device_name
+    matches = [(k, v) for k, v in FRAME_COLORS.items() if device.lower() in k.lower()]
+
+    if not matches:
+        print(f"{C.red('Error')}: No device matching '{device}'", file=sys.stderr)
+        sys.exit(1)
+
+    print()
+    for name, colors in matches:
+        print(f"  {C.bold(name)}")
+        for i, color in enumerate(colors):
+            default = C.dim(" (default)") if i == 0 else ""
+            print(f"    {C.cyan(str(i+1))}. {color}{default}")
+        print()
+
+def _build_device_list():
+    """Build deduplicated device→colors list (no portrait/landscape dupes)."""
+    devices = []
+    for name, colors in FRAME_COLORS.items():
+        base = name.replace(" Portrait", "").replace(" Landscape", "")
+        if not any(d[0] == base for d in devices):
+            devices.append((base, list(colors)))
+    return devices
+
+def _colors_curses(stdscr):
+    """Curses-based interactive color picker."""
+    curses.curs_set(0)
+    curses.use_default_colors()
+    curses.start_color()
+    curses.init_pair(1, 209, -1)   # Orange
+    curses.init_pair(2, 250, -1)   # Dim
+    curses.init_pair(3, 15, -1)    # Bold white
+    curses.init_pair(4, 46, -1)    # Green
+
+    devices = _build_device_list()
+    cfg = load_config()
+    user_defaults = cfg.get("default_colors", {})
+    selected = {}
+    for base, colors in devices:
+        if base in user_defaults and user_defaults[base] in colors:
+            selected[base] = colors.index(user_defaults[base])
+        else:
+            selected[base] = 0
+
+    # Flat list of navigable items
+    items = []
+    for base, colors in devices:
+        for ci in range(len(colors)):
+            items.append((base, ci))
+
+    cursor = 0
+    changed = False
+
+    while True:
+        stdscr.clear()
+        h, w = stdscr.getmaxyx()
+
+        # Header
+        try:
+            stdscr.addstr(0, 2, "Default Colors", curses.A_BOLD)
+            stdscr.addstr(0, 18, "  ↑↓ navigate  space select  enter save  q cancel", curses.color_pair(2))
+        except curses.error:
+            pass
+
+        row = 2
+        idx = 0
+        # Calculate scroll offset so cursor is always visible
+        # Each device takes len(colors) + 2 rows (header + colors + blank)
+        # Simple approach: center the view around cursor
+        total_rows = sum(len(c) + 2 for _, c in devices)
+        scroll_offset = 0
+        if total_rows > h - 4:
+            # Find which row the cursor is on
+            cursor_row = 2
+            ci = 0
+            for base, colors in devices:
+                cursor_row += 1  # device header
+                for c_idx in range(len(colors)):
+                    if ci == cursor:
+                        break
+                    cursor_row += 1
+                    ci += 1
+                else:
+                    cursor_row += 1  # blank line
+                    continue
+                break
+            scroll_offset = max(0, cursor_row - h // 2)
+
+        row = 2 - scroll_offset
+        idx = 0
+        for base, colors in devices:
+            if 0 <= row < h:
+                try:
+                    stdscr.addstr(row, 2, base, curses.A_BOLD)
+                except curses.error:
+                    pass
+            row += 1
+
+            for ci, color in enumerate(colors):
+                if 0 <= row < h - 1:
+                    is_cursor = (idx == cursor)
+                    is_selected = (selected[base] == ci)
+
+                    try:
+                        if is_cursor:
+                            stdscr.addstr(row, 2, "▸ ", curses.A_BOLD)
+                        else:
+                            stdscr.addstr(row, 2, "  ")
+
+                        if is_selected:
+                            stdscr.addstr(row, 4, "● ", curses.color_pair(1))
+                        else:
+                            stdscr.addstr(row, 4, "○ ", curses.color_pair(2))
+
+                        attr = curses.A_BOLD if is_cursor else 0
+                        stdscr.addstr(row, 6, color, attr)
+                    except curses.error:
+                        pass
+                row += 1
+                idx += 1
+            row += 1  # blank between devices
+
+        stdscr.refresh()
+
+        key = stdscr.getch()
+        if key == curses.KEY_DOWN:
+            cursor = min(cursor + 1, len(items) - 1)
+        elif key == curses.KEY_UP:
+            cursor = max(cursor - 1, 0)
+        elif key == ord(' '):
+            base, ci = items[cursor]
+            selected[base] = ci
+            changed = True
+        elif key in (ord('\n'), ord('\r')):
+            if changed:
+                defaults = {}
+                for base, colors in devices:
+                    defaults[base] = colors[selected[base]]
+                cfg["default_colors"] = defaults
+                save_config(cfg)
+            return changed, selected, devices
+        elif key in (ord('q'), 27):  # q or Esc
+            return False, selected, devices
+
+def cmd_colors(args):
+    """Interactive color picker — arrow keys to navigate, space to select, enter to save."""
+    O = lambda t: C.rgb(232, 114, 42, t)
+
+    if not sys.stdin.isatty():
+        # Non-interactive fallback
+        devices = _build_device_list()
+        cfg = load_config()
+        user_defaults = cfg.get("default_colors", {})
+        print(f"\n  {C.bold('All Device Colors')}\n")
+        for base, colors in devices:
+            print(f"  {C.bold(base)}")
+            for i, color in enumerate(colors):
+                is_default = (base in user_defaults and user_defaults[base] == color) or (base not in user_defaults and i == 0)
+                marker = O("●") if is_default else C.dim("○")
+                print(f"    {marker} {color}")
+            print()
+        return
+
+    changed, selected, devices = curses.wrapper(_colors_curses)
+
+    if changed:
+        print(f"\n  {C.green('Defaults saved!')}\n")
+        for base, colors in devices:
+            color = colors[selected[base]]
+            print(f"    {O('●')} {C.bold(base)}: {color}")
+        print()
+    else:
+        print(f"\n  {C.dim('No changes saved.')}\n")
+
+def cmd_setup(args):
+    """Configure the assets directory path."""
+    assets_path = Path(args.path).resolve()
+
+    # Validate the path
+    if not assets_path.exists():
+        print(f"{C.red('Error')}: Path does not exist: {assets_path}", file=sys.stderr)
+        sys.exit(1)
+
+    json_file = assets_path / "NewFrames.json"
+    if not json_file.exists():
+        print(f"{C.red('Error')}: NewFrames.json not found in {assets_path}", file=sys.stderr)
+        print(f"  {C.dim('The path should point to the folder containing NewFrames.json and frame PNGs.')}", file=sys.stderr)
+        sys.exit(1)
+
+    # Count assets
+    pngs = list(assets_path.glob("*.png"))
+    with open(json_file) as f:
+        device_dict = json.load(f)
+    device_count = len([k for k in device_dict if k != "variants"])
+
+    # Save config
+    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    config = {}
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE) as f:
+                config = json.load(f)
+        except json.JSONDecodeError:
+            pass
+    config["assets_path"] = str(assets_path)
+    with open(CONFIG_FILE, "w") as f:
+        json.dump(config, f, indent=2)
+
+    print()
+    print(f"  {C.green('Setup complete!')}")
+    print(f"  {C.bold('Assets path:')} {assets_path}")
+    print(f"  {C.bold('Frame PNGs:')}  {len(pngs)}")
+    print(f"  {C.bold('Devices:')}     {device_count}")
+    print(f"  {C.bold('Config:')}      {CONFIG_FILE}")
+    print()
+    print(f"  {C.dim('You can now run')} {C.cyan('frames screenshot.png')} {C.dim('from anywhere.')}")
+    print()
+
+def cmd_info(args):
+    """Detect device for a screenshot without framing."""
+    assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
+    device_dict = load_json(assets_dir)
+
+    for fpath in args.files:
+        p = Path(fpath)
+        if not p.exists():
+            print(f"{C.red('Error')}: {fpath} not found", file=sys.stderr)
+            continue
+
+        img = Image.open(p)
+        w, h = img.size
+        entry, model_name = detect_device(img, device_dict)
+
+        if args.json:
+            info = {"file": str(p), "width": w, "height": h}
+            if entry:
+                # Resolve variant
+                _, resolved_name = resolve_variant(model_name, device_dict)
+                colors = FRAME_COLORS.get(resolved_name, [])
+                info.update({
+                    "device": resolved_name,
+                    "x": entry["x"], "y": entry["y"],
+                    "colors": colors,
+                    "has_mask": entry.get("mask") == "yes",
+                    "resize_width": entry.get("resizeWidth"),
+                })
+            else:
+                info["device"] = None
+                info["error"] = "Unknown device"
+            print(json.dumps(info, indent=2))
+        else:
+            print()
+            print(f"  {C.bold('File:')} {p.name}")
+            print(f"  {C.bold('Size:')} {w} x {h}")
+
+            if entry:
+                _, resolved_name = resolve_variant(model_name, device_dict)
+                colors = FRAME_COLORS.get(resolved_name, [])
+                print(f"  {C.bold('Device:')} {C.green(resolved_name)}")
+                print(f"  {C.bold('Coords:')} ({entry['x']}, {entry['y']})")
+                if colors:
+                    print(f"  {C.bold('Colors:')} {', '.join(colors)}")
+                if entry.get("resizeWidth"):
+                    print(f"  {C.bold('Resize:')} → {entry['resizeWidth']}px")
+                if entry.get("mask"):
+                    print(f"  {C.bold('Mask:')} yes")
+            else:
+                print(f"  {C.bold('Device:')} {C.red('Unknown')}")
+                print(f"  {C.dim('Width')} {w} {C.dim('not found in device dictionary')}")
+            print()
+
+def copy_to_clipboard(path):
+    """Copy image to macOS clipboard."""
+    try:
+        subprocess.run([
+            "osascript", "-e",
+            f'set the clipboard to (read (POSIX file "{path}") as «class PNGf»)'
+        ], check=True, capture_output=True)
+        print(f"  {C.green('Copied to clipboard')}")
+    except subprocess.CalledProcessError:
+        print(f"  {C.yellow('Warning')}: Could not copy to clipboard", file=sys.stderr)
+
+# ── Argument Parsing ─────────────────────────────────────────────────────────
+
+def build_parser():
+    p = argparse.ArgumentParser(
+        prog="frames",
+        description="Frame screenshots with Apple device bezels",
+        add_help=True,
+    )
+    p.add_argument("--version", action="version", version=f"frames v{VERSION}")
+    p.add_argument("--no-color", action="store_true", help="Disable colored output")
+    p.add_argument("--json", action="store_true", help="Output JSON (for AI agents)")
+    p.add_argument("--assets", default=None, help="Assets directory path")
+    p.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    sub = p.add_subparsers(dest="cmd")
+
+    # Default frame command (also works without subcommand)
+    frame_p = sub.add_parser("frame", help="Frame screenshots (default command)")
+    frame_p.add_argument("files", nargs="*", help="Screenshot files to frame")
+    frame_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
+    frame_p.add_argument("--merge", "-m", action="store_true", help="Merge framed images side by side")
+    frame_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
+    frame_p.add_argument("--output", "-o", help="Output directory")
+    frame_p.add_argument("--copy", action="store_true", help="Copy result to clipboard")
+    frame_p.add_argument("--device", "-d", help="Force specific device frame")
+    frame_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
+
+    # List command
+    sub.add_parser("list", help="List supported devices")
+
+    # List colors command (partial match)
+    colors_p = sub.add_parser("list-colors", help="Show colors for a specific device")
+    colors_p.add_argument("device_name", help="Device name (partial match)")
+
+    # Colors command (browse all)
+    sub.add_parser("colors", help="Browse all device colors")
+
+    # Info command
+    info_p = sub.add_parser("info", help="Detect device without framing")
+    info_p.add_argument("files", nargs="+", help="Screenshot files")
+
+    # Setup command
+    setup_p = sub.add_parser("setup", help="Configure assets directory path")
+    setup_p.add_argument("path", help="Path to NewFrames assets folder")
+
+    return p
+
+def main():
+    p = build_parser()
+
+    # Pre-process argv: if the first non-flag arg isn't a known subcommand,
+    # assume it's a file and inject "frame" as the subcommand
+    known_cmds = {"frame", "list", "list-colors", "colors", "info", "setup", "-h", "--help", "--version"}
+    argv = sys.argv[1:]
+    if argv:
+        first_non_flag = next((a for a in argv if not a.startswith("-")), None)
+        if first_non_flag and first_non_flag not in known_cmds:
+            argv = ["frame"] + argv
+
+    args = p.parse_args(argv)
+
+    # Disable colors if requested
+    if args.no_color or os.environ.get("NO_COLOR") or not sys.stdout.isatty():
+        C.enabled = False
+
+    # No command → show splash
+    if args.cmd is None:
+        if not args.json:
+            show_splash()
+        return
+
+    # Propagate global flags
+    if not hasattr(args, "verbose"):
+        args.verbose = False
+    if not hasattr(args, "json"):
+        args.json = False
+    if hasattr(args, "frame_json") and args.frame_json:
+        args.json = True
+
+    # Resolve assets directory (setup doesn't need it)
+    if args.cmd != "setup":
+        args.assets = str(get_assets_dir(args.assets))
+
+    # Route commands
+    cmds = {
+        "frame": cmd_frame,
+        "list": cmd_list,
+        "list-colors": cmd_list_colors,
+        "colors": cmd_colors,
+        "info": cmd_info,
+        "setup": cmd_setup,
+    }
+    handler = cmds.get(args.cmd)
+    if handler:
+        # Check assets exist (except for setup and colors)
+        if args.cmd not in ("setup", "colors", "list-colors") and not Path(args.assets).exists():
+            print(f"\n  {C.red('Assets not found!')} Run setup first:\n")
+            print(f"    {C.cyan('frames')} setup /path/to/NewFrames\n")
+            print(f"  {C.dim('The NewFrames folder contains frame PNGs and NewFrames.json.')}")
+            print(f"  {C.dim('If using the Apple Frames shortcut, it is typically at:')}")
+            print(f"  {C.dim('~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/NewFrames/')}\n")
+            sys.exit(1)
+        handler(args)
+    else:
+        show_splash()
+
+if __name__ == "__main__":
+    main()
