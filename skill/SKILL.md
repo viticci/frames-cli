@@ -51,6 +51,12 @@ frames list
 
 # Show available colors for a device
 frames list-colors "17 Pro"
+
+# Save to /framed/ subfolder
+frames -f screenshot.png
+
+# Save to custom subfolder
+frames --subfolder mockups screenshot.png
 ```
 
 ## Default Behavior

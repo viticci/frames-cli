@@ -41,11 +41,17 @@ def get_assets_dir(args_assets=None):
             pass
 
 def get_subfolder_setting(args):
-    """Check if framed images should go in a /framed/ subfolder. CLI flag > config > default (False)."""
-    if hasattr(args, 'subfolder') and args.subfolder:
-        return True
+    """Get subfolder name if enabled. Returns folder name string or None.
+    CLI flag > config > default (None). -f alone = 'framed', -f custom = 'custom'."""
+    if hasattr(args, 'subfolder') and args.subfolder is not None:
+        return args.subfolder  # string: "framed" (default) or custom name
     cfg = load_config()
-    return cfg.get("use_subfolder", False)
+    sub = cfg.get("use_subfolder", False)
+    if sub is True:
+        return "framed"
+    elif isinstance(sub, str):
+        return sub
+    return None
     return DEFAULT_ASSETS
 
 # ── Color System ─────────────────────────────────────────────────────────────
@@ -128,6 +134,7 @@ def show_splash():
     print(f"    {C.cyan('frames')} -b 3 *.png             {C.dim('Merge in batches of 3')}")
     print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
     print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
+    print(f"    {C.cyan('frames')} -f mockups *.png       {C.dim('Save to custom subfolder')}")
     print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
     print(f"    {C.cyan('frames')} list                   {C.dim('Show supported devices')}")
     print(f"    {C.cyan('frames')} setup /path/to/assets   {C.dim('Configure assets folder')}")
@@ -471,7 +478,7 @@ def cmd_frame(args):
         if args.output:
             out_dir = Path(args.output)
         elif get_subfolder_setting(args):
-            out_dir = framed[0][1].parent / "framed"
+            out_dir = framed[0][1].parent / get_subfolder_setting(args)
         else:
             out_dir = framed[0][1].parent
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -519,7 +526,7 @@ def cmd_frame(args):
             if args.output:
                 out_dir = Path(args.output)
             elif get_subfolder_setting(args):
-                out_dir = src_path.parent / "framed"
+                out_dir = src_path.parent / get_subfolder_setting(args)
             else:
                 out_dir = src_path.parent
             out_dir.mkdir(parents=True, exist_ok=True)
@@ -910,7 +917,8 @@ def build_parser():
     frame_p.add_argument("--output", "-o", help="Output directory")
     frame_p.add_argument("--copy", action="store_true", help="Copy result to clipboard")
     frame_p.add_argument("--device", "-d", help="Force specific device frame")
-    frame_p.add_argument("--subfolder", "-f", action="store_true", help="Save to /framed/ subfolder")
+    frame_p.add_argument("-f", action="store_const", const="framed", dest="subfolder", help="Save to /framed/ subfolder")
+    frame_p.add_argument("--subfolder", dest="subfolder", metavar="NAME", help="Save to custom subfolder (e.g. --subfolder mockups)")
     frame_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
 
     # List command

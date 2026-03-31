@@ -16,33 +16,32 @@ Frame device screenshots with Apple product bezels from the command line. Auto-d
 
 ---
 
-## Requirements
-
-- Python 3
-- [Pillow](https://pillow.readthedocs.io/)
-
-```bash
-pip3 install Pillow
-```
-
----
-
 ## Installation
 
-**1. Copy the CLI to your PATH:**
+### Requirements
+- Python 3.8+
+- Pillow (Python imaging library)
 
-```bash
-cp frames ~/bin/frames
-chmod +x ~/bin/frames
-```
+### Steps
 
-**2. Set up assets:**
-
-The CLI needs the Apple Frames asset folder (frame PNGs + `NewFrames.json`). If you have the Apple Frames shortcut installed, the assets are already in your Shortcuts iCloud container:
-
-```bash
-frames setup ~/Library/Mobile\ Documents/iCloud~is~workflow~my~workflows/Documents/Frames
-```
+1. Install Pillow:
+   ```
+   pip3 install Pillow
+   ```
+2. Download the `frames` script and make it executable:
+   ```
+   curl -o ~/bin/frames https://raw.githubusercontent.com/viticci/frames-cli/main/frames
+   chmod +x ~/bin/frames
+   ```
+   (Create `~/bin/` first if it doesn't exist: `mkdir -p ~/bin`)
+3. Make sure `~/bin` is in your PATH. Add to your `~/.zshrc` or `~/.bashrc`:
+   ```
+   export PATH="$HOME/bin:$PATH"
+   ```
+4. Download the Apple Frames asset pack and run setup:
+   ```
+   frames setup /path/to/Frames
+   ```
 
 This writes the path to `~/.config/frames/config.json`. You only need to run this once.
 
@@ -76,6 +75,9 @@ frames --copy screenshot.png
 
 # Save to /framed/ subfolder
 frames -f screenshot.png
+
+# Save to custom subfolder
+frames --subfolder mockups *.png
 
 # Show device info without framing
 frames info screenshot.png
@@ -159,7 +161,10 @@ If the total isn't evenly divisible, the last batch contains the remainder. Outp
 
 ### `--subfolder` / `-f`
 
-Save framed images to a `/framed/` subfolder relative to the source file's directory, instead of next to the originals. The subfolder name is configurable via `setup`.
+Save framed images to a subfolder relative to the source file's directory, instead of next to the originals. Two modes:
+
+- `-f` (shorthand) saves to a `/framed/` subfolder
+- `--subfolder NAME` saves to a custom-named subfolder
 
 ```bash
 frames -f screenshot.png
@@ -167,6 +172,9 @@ frames -f screenshot.png
 
 frames -f *.png
 # saves all to ./framed/
+
+frames --subfolder mockups *.png
+# saves all to ./mockups/
 ```
 
 To make subfolder mode the default, run `frames setup --subfolder`. To revert, run `frames setup --no-subfolder`.
