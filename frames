@@ -125,6 +125,7 @@ def show_splash():
     print(f"    {C.cyan('frames')} screenshot.png         {C.dim('Frame a screenshot')}")
     print(f"    {C.cyan('frames')} *.png                  {C.dim('Frame all PNGs in directory')}")
     print(f"    {C.cyan('frames')} -m *.png               {C.dim('Frame and merge side by side')}")
+    print(f"    {C.cyan('frames')} -b 3 *.png             {C.dim('Merge in batches of 3')}")
     print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
     print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
     print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
@@ -456,10 +457,16 @@ def cmd_frame(args):
         print(f"{C.red('No screenshots were framed.')}", file=sys.stderr)
         sys.exit(1)
 
-    # Merge if requested
-    if args.merge and len(framed) > 1:
-        images = [f[0] for f in framed]
-        merged = merge_images(images, spacing=args.spacing)
+    # Merge if requested (--merge or --batch implies merge)
+    batch_size = getattr(args, 'batch', None)
+    do_merge = args.merge or batch_size
+
+    if do_merge and len(framed) > 1:
+        # Split into batches
+        if batch_size and batch_size > 0:
+            batches = [framed[i:i+batch_size] for i in range(0, len(framed), batch_size)]
+        else:
+            batches = [framed]  # Single batch = merge all
 
         if args.output:
             out_dir = Path(args.output)
@@ -469,17 +476,40 @@ def cmd_frame(args):
             out_dir = framed[0][1].parent
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        out_path = out_dir / "merged_framed.png"
-        merged.save(out_path, "PNG")
+        merged_outputs = []
+        for batch_idx, batch in enumerate(batches):
+            images = [f[0] for f in batch]
+            if len(images) == 1:
+                merged = images[0]
+            else:
+                merged = merge_images(images, spacing=args.spacing)
 
-        if not args.json:
-            print(f"\n  {C.green('Merged')} {len(framed)} frames → {C.bold(str(out_path))}")
+            if len(batches) == 1:
+                out_name = "merged_framed.png"
+            else:
+                out_name = f"merged_{batch_idx + 1}_framed.png"
 
-        if args.copy:
-            copy_to_clipboard(out_path)
+            out_path = out_dir / out_name
+            merged.save(out_path, "PNG")
+            merged_outputs.append(str(out_path))
+
+            if not args.json:
+                batch_count = len(batch)
+                print(f"\n  {C.green('Merged')} {batch_count} frames → {C.bold(str(out_path))}")
+
+        if args.copy and len(merged_outputs) == 1:
+            copy_to_clipboard(Path(merged_outputs[0]))
 
         if args.json:
-            result_json = {"merged": str(out_path), "count": len(framed), "frames": infos}
+            if len(batches) == 1:
+                result_json = {"merged": merged_outputs[0], "count": len(framed), "frames": infos}
+            else:
+                result_json = {
+                    "batches": [{"merged": p, "count": len(b)} for p, b in zip(merged_outputs, batches)],
+                    "batch_size": batch_size,
+                    "total": len(framed),
+                    "frames": infos,
+                }
             print(json.dumps(result_json, indent=2))
 
     else:
@@ -875,6 +905,7 @@ def build_parser():
     frame_p.add_argument("files", nargs="*", help="Screenshot files to frame")
     frame_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
     frame_p.add_argument("--merge", "-m", action="store_true", help="Merge framed images side by side")
+    frame_p.add_argument("--batch", "-b", type=int, metavar="N", help="Merge in batches of N (e.g. -b 3 for groups of 3)")
     frame_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
     frame_p.add_argument("--output", "-o", help="Output directory")
     frame_p.add_argument("--copy", action="store_true", help="Copy result to clipboard")

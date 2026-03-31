@@ -28,6 +28,12 @@ frames -m screenshot1.png screenshot2.png
 # Frame, merge with custom spacing, save to specific dir
 frames -m -s 80 -o /output/dir/ *.png
 
+# Merge in batches of 3 (15 files → 5 merged images)
+frames -b 3 *.png
+
+# Batch merge with custom spacing and output directory
+frames -b 4 -s 80 -o /output/ *.png
+
 # Frame and copy to clipboard (macOS)
 frames --copy screenshot.png
 
@@ -81,7 +87,15 @@ frames -m -o ~/framed/ ~/screenshots/*.png
 
 # Random colors for variety
 frames -c random -o ~/framed/ ~/screenshots/*.png
+
+# Merge in sequential batches of N (e.g. 15 files → 5 merged images)
+frames -b 3 ~/screenshots/*.png
+
+# Batch merge with random colors
+frames -b 3 -c random *.png
 ```
+
+`--batch` / `-b` implies `--merge` — no need to pass both. If the total isn't evenly divisible, the last batch contains the remainder. Output files are named `merged_1_framed.png`, `merged_2_framed.png`, etc. JSON output includes a `batches` array with per-batch counts and paths.
 
 ## Assets
 

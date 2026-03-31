@@ -68,6 +68,9 @@ frames -c random *.png
 # Frame and merge side by side
 frames -m screenshot1.png screenshot2.png
 
+# Merge in batches of 3 (15 files → 5 merged images)
+frames -b 3 *.png
+
 # Copy framed result to clipboard (macOS)
 frames --copy screenshot.png
 
@@ -130,6 +133,27 @@ frames -m -s 120 screenshot1.png screenshot2.png
 ```
 
 The merged output is saved as `merged_framed.png` in the output directory.
+
+---
+
+### `--batch` / `-b`
+
+Merge screenshots in sequential batches of N. Produces multiple merged images instead of one.
+
+```bash
+# 15 screenshots → 5 merged images of 3
+frames -b 3 *.png
+
+# Batch merge with custom spacing and output directory
+frames -b 4 -s 80 -o /output/ *.png
+
+# Batch merge with random colors
+frames -b 3 -c random *.png
+```
+
+If the total isn't evenly divisible, the last batch contains the remainder. Output files are named `merged_1_framed.png`, `merged_2_framed.png`, etc.
+
+`--batch` implies `--merge` — no need to pass both. JSON output includes a `batches` array with per-batch counts and paths.
 
 ---
 
