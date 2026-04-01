@@ -22,28 +22,48 @@ Frame device screenshots with Apple product bezels from the command line. Auto-d
 - Python 3.8+
 - Pillow (Python imaging library)
 
-### Steps
+### Option A: Clone the repo
 
-1. Install Pillow:
-   ```
-   pip3 install Pillow
-   ```
-2. Download the `frames` script and make it executable:
-   ```
-   curl -o ~/bin/frames https://raw.githubusercontent.com/viticci/frames-cli/main/frames
-   chmod +x ~/bin/frames
-   ```
-   (Create `~/bin/` first if it doesn't exist: `mkdir -p ~/bin`)
-3. Make sure `~/bin` is in your PATH. Add to your `~/.zshrc` or `~/.bashrc`:
-   ```
-   export PATH="$HOME/bin:$PATH"
-   ```
-4. Download the Apple Frames asset pack and run setup:
-   ```
-   frames setup /path/to/Frames
-   ```
+```bash
+git clone https://github.com/viticci/frames-cli.git
+cd frames-cli
+pip3 install Pillow
+```
 
-This writes the path to `~/.config/frames/config.json`. You only need to run this once.
+Then add the repo directory to your PATH, or symlink the script somewhere already in your PATH:
+
+```bash
+# Symlink (recommended — stays up to date with git pull)
+ln -s "$(pwd)/frames" /usr/local/bin/frames
+
+# Or add to PATH in ~/.zshrc or ~/.bashrc
+export PATH="/path/to/frames-cli:$PATH"
+```
+
+### Option B: Direct download
+
+```bash
+pip3 install Pillow
+mkdir -p ~/bin
+curl -o ~/bin/frames https://raw.githubusercontent.com/viticci/frames-cli/main/frames
+chmod +x ~/bin/frames
+```
+
+Make sure `~/bin` is in your PATH. Add to `~/.zshrc` or `~/.bashrc`:
+
+```bash
+export PATH="$HOME/bin:$PATH"
+```
+
+### Setup
+
+Run setup to point the CLI at your Apple Frames asset pack:
+
+```
+frames setup /path/to/Frames
+```
+
+This writes the path to `~/.config/frames/config.json`. You only need to run this once. The asset folder should contain `NewFrames.json` and the frame PNG files.
 
 You can also set the `FRAMES_ASSETS` environment variable instead of using the config file.
 
@@ -153,7 +173,7 @@ frames -b 4 -s 80 -o /output/ *.png
 frames -b 3 -c random *.png
 ```
 
-If the total isn't evenly divisible, the last batch contains the remainder. Output files are named `merged_1_framed.png`, `merged_2_framed.png`, etc.
+Batch size must be at least 2. If the total isn't evenly divisible, the last batch contains the remainder. Output files are named `merged_1_framed.png`, `merged_2_framed.png`, etc.
 
 `--batch` implies `--merge` — no need to pass both. JSON output includes a `batches` array with per-batch counts and paths.
 
@@ -194,17 +214,18 @@ frames -o /tmp/output/ *.png
 
 ### `--copy`
 
-Copy the framed image directly to the macOS clipboard. Works with a single image only.
+Copy the framed image directly to the macOS clipboard. Works with a single image only. The success/failure message prints to stderr, so it won't corrupt `--json` output.
 
 ```bash
 frames --copy screenshot.png
+frames --json --copy screenshot.png   # valid JSON on stdout
 ```
 
 ---
 
 ### `--device` / `-d`
 
-Force a specific device frame instead of auto-detecting from the screenshot dimensions. Useful when multiple devices share a resolution.
+Force a specific device frame instead of auto-detecting from the screenshot dimensions. Skips automatic variant resolution, so the exact device you specify is used. Useful when multiple devices share a resolution.
 
 ```bash
 frames -d "iPhone 17 Pro Portrait" screenshot.png
@@ -277,12 +298,12 @@ frames --json info screenshot.png
 
 ### `setup`
 
-Configure the path to the NewFrames assets folder. Validates that `NewFrames.json` exists and reports asset counts. Also controls the subfolder default behavior.
+Configure the path to the Frames assets folder. Validates that `NewFrames.json` exists inside it and reports asset counts. Also controls the subfolder default behavior.
 
 ```bash
-frames setup /path/to/NewFrames
-frames setup --subfolder /path/to/NewFrames     # enable subfolder mode by default
-frames setup --no-subfolder /path/to/NewFrames  # disable subfolder mode (default)
+frames setup /path/to/Frames
+frames setup --subfolder /path/to/Frames     # enable subfolder mode by default
+frames setup --no-subfolder /path/to/Frames  # disable subfolder mode (default)
 ```
 
 ---
@@ -293,7 +314,7 @@ The `setup` and `colors` commands write to `~/.config/frames/config.json`:
 
 ```json
 {
-  "assets_path": "/path/to/NewFrames",
+  "assets_path": "/path/to/Frames",
   "use_subfolder": false,
   "default_colors": {
     "iPhone 17 Pro": "Deep Blue",
@@ -361,9 +382,9 @@ frames -f ~/screenshots/*.png
 | iPad | Pro 11" / 13" (2018-2024), Air, mini | Portrait + landscape |
 | MacBook | Neo, Air M5 13"/15", Pro M5 14"/16", Pro 2021, Air 2020-2022, Pro 13 | Front-facing |
 | iMac | iMac 2021 | 7 colors |
-| Apple Watch | Ultra 3, Ultra 2024, Series 10, Series 7 | Including band combinations |
+| Apple Watch | Ultra 3, Ultra 2024, Series 11, Series 10, Series 7 | Including band combinations |
 
-Watch Ultra 3 supports 13 case + band combinations. All devices that have landscape variants support both orientations.
+Watch Ultra 3 supports 13 case + band combinations. Watch Series 11 supports 22 case + band combinations per size. All devices that have landscape variants support both orientations.
 
 ---
 
