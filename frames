@@ -39,6 +39,7 @@ def get_assets_dir(args_assets=None):
                 return Path(cfg["assets_path"])
         except (json.JSONDecodeError, KeyError):
             pass
+    return DEFAULT_ASSETS
 
 def get_subfolder_setting(args):
     """Get subfolder name if enabled. Returns folder name string or None.
@@ -52,7 +53,6 @@ def get_subfolder_setting(args):
     elif isinstance(sub, str):
         return sub
     return None
-    return DEFAULT_ASSETS
 
 # ── Color System ─────────────────────────────────────────────────────────────
 
@@ -134,7 +134,7 @@ def show_splash():
     print(f"    {C.cyan('frames')} -b 3 *.png             {C.dim('Merge in batches of 3')}")
     print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
     print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
-    print(f"    {C.cyan('frames')} -f mockups *.png       {C.dim('Save to custom subfolder')}")
+    print(f"    {C.cyan('frames')} --subfolder mockups *.png {C.dim('Save to custom subfolder')}")
     print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
     print(f"    {C.cyan('frames')} list                   {C.dim('Show supported devices')}")
     print(f"    {C.cyan('frames')} setup /path/to/assets   {C.dim('Configure assets folder')}")
@@ -163,9 +163,11 @@ FRAME_COLORS = {
     "iPhone 16 Plus Portrait":     ["Ultramarine", "White", "Teal", "Pink", "Black"],
     "iPhone 16 Plus Landscape":    ["Ultramarine", "Teal", "Pink", "Black", "White"],
     "Watch Ultra 3":               ["Black + Alpine Loop Black", "Black + Alpine Loop Light Blue", "Black + Milanese Loop", "Black + Ocean Band Anchor Blue", "Black + Ocean Band Black", "Black + Trail Loop Black Charcoal", "Natural + Alpine Loop Light Blue", "Natural + Alpine Loop Terra Cotta", "Natural + Milanese Loop", "Natural + Ocean Band Anchor Blue", "Natural + Ocean Band Neon Green", "Natural + Trail Loop Blue Bright Blue", "Natural + Trail Loop Green Neon"],
-    "Watch Ultra 2024":            ["Orange Beige Trail Loop", "Blue Alpine Loop"],
+    "Watch Ultra 2024":            ["Orange Beige Trail Loop", "Blue Alpine Loop", "Orange Ocean Band", "Black + Alpine Loop Dark Green", "Black + Alpine Loop Navy", "Black + Alpine Loop Tan", "Black + Ocean Band Black", "Black + Ocean Band Ice Blue", "Black + Ocean Band Navy", "Black + Titanium Milanese Loop", "Black + Trail Loop Black", "Black + Trail Loop Blue", "Black + Trail Loop Green", "Natural + Alpine Loop Dark Green", "Natural + Alpine Loop Navy", "Natural + Alpine Loop Tan", "Natural + Ocean Band Black", "Natural + Ocean Band Ice Blue", "Natural + Ocean Band Navy", "Natural + Titanium Milanese Loop", "Natural + Trail Loop Black", "Natural + Trail Loop Blue"],
     "MacBook Air M5 13":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
     "MacBook Air M5 15":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
+    "Watch Series 11 42":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
+    "Watch Series 11 46":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
     "iMac 2021":                   ["Blue", "Green", "Pink", "Silver", "Yellow", "Orange", "Purple"],
 }
 
@@ -182,6 +184,8 @@ FRAME_VARIANTS = {
     "MacBook Pro M5 14":           ["MacBook Pro M5 14", "MacBook Pro 2021 14"],
     "MacBook Pro M5 16":           ["MacBook Pro M5 16", "MacBook Pro 2021 16"],
     "MacBook Air M5 13":           ["MacBook Air M5 13", "MacBook Air 2022"],
+    "Watch Series 10 42":          ["Watch Series 11 42", "Watch Series 10 42"],
+    "Watch Series 10 46":          ["Watch Series 11 46", "Watch Series 10 46"],
 }
 
 # ── Core Engine ──────────────────────────────────────────────────────────────
