@@ -184,8 +184,6 @@ FRAME_VARIANTS = {
     "MacBook Pro M5 14":           ["MacBook Pro M5 14", "MacBook Pro 2021 14"],
     "MacBook Pro M5 16":           ["MacBook Pro M5 16", "MacBook Pro 2021 16"],
     "MacBook Air M5 13":           ["MacBook Air M5 13", "MacBook Air 2022"],
-    "Watch Series 10 42":          ["Watch Series 11 42", "Watch Series 10 42"],
-    "Watch Series 10 46":          ["Watch Series 11 46", "Watch Series 10 46"],
 }
 
 # ── Core Engine ──────────────────────────────────────────────────────────────
