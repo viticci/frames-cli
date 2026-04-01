@@ -22,7 +22,7 @@ Frame device screenshots with Apple product bezels from the command line. Auto-d
 - Python 3.8+
 - Pillow (Python imaging library)
 
-### Option A: Clone the repo
+### Option A: Clone the repo (recommended)
 
 ```bash
 git clone https://github.com/viticci/frames-cli.git
@@ -30,30 +30,47 @@ cd frames-cli
 pip3 install Pillow
 ```
 
-Then add the repo directory to your PATH, or symlink the script somewhere already in your PATH:
+Then symlink the script into a directory that's already in your PATH:
 
 ```bash
-# Symlink (recommended — stays up to date with git pull)
-ln -s "$(pwd)/frames" /usr/local/bin/frames
+# Check which bin directory is in your PATH (use the first one that exists)
+# Common locations: ~/.local/bin, ~/bin, /usr/local/bin
 
-# Or add to PATH in ~/.zshrc or ~/.bashrc
-export PATH="/path/to/frames-cli:$PATH"
+# Create the directory if needed, then symlink
+mkdir -p ~/.local/bin
+ln -s "$(pwd)/frames" ~/.local/bin/frames
+```
+
+If `~/.local/bin` isn't in your PATH yet, add it to `~/.zshrc` (or `~/.bashrc`):
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then restart your terminal or run `source ~/.zshrc`.
+
+Verify it works:
+
+```bash
+frames --version
 ```
 
 ### Option B: Direct download
 
 ```bash
 pip3 install Pillow
-mkdir -p ~/bin
-curl -o ~/bin/frames https://raw.githubusercontent.com/viticci/frames-cli/main/frames
-chmod +x ~/bin/frames
+mkdir -p ~/.local/bin
+curl -o ~/.local/bin/frames https://raw.githubusercontent.com/viticci/frames-cli/main/frames
+chmod +x ~/.local/bin/frames
 ```
 
-Make sure `~/bin` is in your PATH. Add to `~/.zshrc` or `~/.bashrc`:
+If `~/.local/bin` isn't in your PATH yet, add it to `~/.zshrc` (or `~/.bashrc`):
 
 ```bash
-export PATH="$HOME/bin:$PATH"
+export PATH="$HOME/.local/bin:$PATH"
 ```
+
+Then restart your terminal or run `source ~/.zshrc`.
 
 ### Setup
 
