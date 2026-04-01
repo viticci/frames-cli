@@ -315,11 +315,11 @@ def apply_mask(screenshot, mask):
     return Image.merge("RGBA", (r, g, b, mask_r))
 
 def composite(screenshot, frame, x, y):
-    """Two-step overlay compositing (Apple Frames method)."""
-    result = frame.copy()
-    result.paste(screenshot, (x, y), screenshot)
-    result.paste(frame, (0, 0), frame)
-    return result
+    """Alpha-composite: place screenshot on canvas, composite frame on top.
+    Produces fully opaque output at semi-transparent bezel inner edges."""
+    canvas = Image.new("RGBA", frame.size, (0, 0, 0, 0))
+    canvas.paste(screenshot, (x, y))
+    return Image.alpha_composite(canvas, frame)
 
 def merge_images(images, spacing=60):
     """Merge multiple images horizontally with spacing."""
