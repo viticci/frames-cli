@@ -133,8 +133,11 @@ def show_splash():
     print(f"    {C.cyan('frames')} -m *.png               {C.dim('Frame and merge side by side')}")
     print(f"    {C.cyan('frames')} -b 3 *.png             {C.dim('Merge in batches of 3')}")
     print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
+    print(f"    {C.cyan('frames')} ~/Screenshots/          {C.dim('Frame all images in a folder')}")
     print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
     print(f"    {C.cyan('frames')} --subfolder mockups *.png {C.dim('Save to custom subfolder')}")
+    print(f"    {C.cyan('frames')} info shot.png           {C.dim('Identify device, colors, variants')}")
+    print(f"    {C.cyan('frames')} info ~/Screenshots/     {C.dim('Scan folder for device matches')}")
     print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
     print(f"    {C.cyan('frames')} list                   {C.dim('Show supported devices')}")
     print(f"    {C.cyan('frames')} setup /path/to/assets   {C.dim('Configure assets folder')}")
@@ -431,17 +434,16 @@ def cmd_frame(args):
         print(f"{C.red('Error')}: No input files specified.", file=sys.stderr)
         sys.exit(1)
 
+    # Expand directories into image files
+    expanded = _gather_image_paths(args.files)
+    if not expanded:
+        print(f"{C.red('Error')}: No images found in the specified paths.", file=sys.stderr)
+        sys.exit(1)
+
     framed = []
     infos = []
 
-    for fpath in args.files:
-        p = Path(fpath)
-        if not p.exists():
-            print(f"{C.red('Error')}: File not found: {fpath}", file=sys.stderr)
-            continue
-        if not p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.heic', '.tiff', '.webp'):
-            print(f"{C.yellow('Skipping')}: {fpath} (not an image)", file=sys.stderr)
-            continue
+    for p in expanded:
 
         try:
             if not args.json:
@@ -831,58 +833,132 @@ def cmd_setup(args):
     print(f"  {C.dim('You can now run')} {C.cyan('frames screenshot.png')} {C.dim('from anywhere.')}")
     print()
 
+def _gather_image_paths(paths):
+    """Expand a mix of files and directories into image file paths."""
+    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".tiff", ".webp"}
+    result = []
+    for p in paths:
+        p = Path(p)
+        if p.is_dir():
+            for f in sorted(p.iterdir()):
+                if f.suffix.lower() in IMAGE_EXTS and not f.name.startswith("."):
+                    result.append(f)
+        elif p.is_file():
+            result.append(p)
+        else:
+            print(f"{C.red('Error')}: {p} not found", file=sys.stderr)
+    return result
+
+def _info_for_image(p, device_dict):
+    """Analyze a single image. Returns an info dict."""
+    img = Image.open(p)
+    w, h = img.size
+    info = {"file": str(p), "name": p.name, "width": w, "height": h}
+
+    entry, model_name = detect_device(img, device_dict)
+    if not entry:
+        info["device"] = None
+        info["error"] = f"Unknown device (width {w}px)"
+        return info
+
+    # Resolve variant
+    variant_entry, resolved_name = resolve_variant(model_name, device_dict)
+    if variant_entry:
+        entry = variant_entry
+
+    colors = FRAME_COLORS.get(resolved_name, [])
+    variants = FRAME_VARIANTS.get(model_name, [])
+
+    info.update({
+        "device": resolved_name,
+        "primary_match": model_name,
+        "x": entry["x"], "y": entry["y"],
+        "colors": colors,
+        "color_count": len(colors),
+        "has_mask": entry.get("mask") == "yes",
+        "resize_width": entry.get("resizeWidth"),
+        "variants": variants,
+        "is_variant": resolved_name != model_name,
+    })
+    return info
+
 def cmd_info(args):
-    """Detect device for a screenshot without framing."""
+    """Detect device for screenshots or scan a folder."""
     assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
     device_dict = load_json(assets_dir)
 
-    for fpath in args.files:
-        p = Path(fpath)
-        if not p.exists():
-            print(f"{C.red('Error')}: {fpath} not found", file=sys.stderr)
+    image_paths = _gather_image_paths(args.files)
+    if not image_paths:
+        print(f"{C.red('No images found.')}", file=sys.stderr)
+        return
+
+    results = []
+    for p in image_paths:
+        try:
+            info = _info_for_image(p, device_dict)
+            results.append(info)
+        except Exception as e:
+            results.append({"file": str(p), "name": p.name, "error": str(e)})
+
+    if args.json:
+        print(json.dumps(results if len(results) > 1 else results[0], indent=2))
+        return
+
+    # Pretty print
+    matched = [r for r in results if r.get("device")]
+    unmatched = [r for r in results if not r.get("device")]
+
+    if len(image_paths) > 1:
+        print(f"\n  {C.bold('Scanned')} {len(image_paths)} images: "
+              f"{C.green(str(len(matched)) + ' matched')}, "
+              f"{C.red(str(len(unmatched)) + ' unknown') if unmatched else C.dim('0 unknown')}")
+
+    for r in results:
+        print()
+        print(f"  {C.bold(r['name'])}")
+        dims = f'{r["width"]} × {r["height"]}'
+        print(f"  {C.dim(dims)}")
+
+        if r.get("error"):
+            print(f"  {C.red('✗')} {r['error']}")
             continue
 
-        img = Image.open(p)
-        w, h = img.size
-        entry, model_name = detect_device(img, device_dict)
+        device = r["device"]
+        colors = r.get("colors", [])
+        variants = r.get("variants", [])
 
-        if args.json:
-            info = {"file": str(p), "width": w, "height": h}
-            if entry:
-                # Resolve variant
-                _, resolved_name = resolve_variant(model_name, device_dict)
-                colors = FRAME_COLORS.get(resolved_name, [])
-                info.update({
-                    "device": resolved_name,
-                    "x": entry["x"], "y": entry["y"],
-                    "colors": colors,
-                    "has_mask": entry.get("mask") == "yes",
-                    "resize_width": entry.get("resizeWidth"),
-                })
-            else:
-                info["device"] = None
-                info["error"] = "Unknown device"
-            print(json.dumps(info, indent=2))
+        print(f"  {C.green('✓')} {C.bold(device)}")
+
+        if r.get("is_variant"):
+            print(f"    {C.dim('Primary match:')} {r['primary_match']} {C.dim('→ variant resolved')}")
+
+        if colors:
+            print(f"    {C.cyan(str(len(colors)))} colors: {C.dim(', '.join(colors[:5]))}"
+                  + (f" {C.dim(f'(+{len(colors)-5} more)')}" if len(colors) > 5 else ""))
         else:
-            print()
-            print(f"  {C.bold('File:')} {p.name}")
-            print(f"  {C.bold('Size:')} {w} x {h}")
+            print(f"    {C.dim('No color variants')}")
 
-            if entry:
-                _, resolved_name = resolve_variant(model_name, device_dict)
-                colors = FRAME_COLORS.get(resolved_name, [])
-                print(f"  {C.bold('Device:')} {C.green(resolved_name)}")
-                print(f"  {C.bold('Coords:')} ({entry['x']}, {entry['y']})")
-                if colors:
-                    print(f"  {C.bold('Colors:')} {', '.join(colors)}")
-                if entry.get("resizeWidth"):
-                    print(f"  {C.bold('Resize:')} → {entry['resizeWidth']}px")
-                if entry.get("mask"):
-                    print(f"  {C.bold('Mask:')} yes")
-            else:
-                print(f"  {C.bold('Device:')} {C.red('Unknown')}")
-                print(f"  {C.dim('Width')} {w} {C.dim('not found in device dictionary')}")
-            print()
+        if len(variants) > 1:
+            alt = [v for v in variants if v != device]
+            print(f"    {C.dim('Also available:')} {', '.join(alt)}")
+
+        if r.get("resize_width"):
+            print(f"    {C.dim('Scaled from')} {r['width']}px {C.dim('→')} {r['resize_width']}px")
+        if r.get("has_mask"):
+            print(f"    {C.dim('Mask applied')}")
+
+    # Summary by device when scanning folders with many files
+    if len(matched) > 3:
+        from collections import Counter
+        device_counts = Counter(r["device"] for r in matched)
+        print(f"\n  {C.bold('Summary')}")
+        for device, count in device_counts.most_common():
+            colors = FRAME_COLORS.get(device, [])
+            color_tag = f" ({len(colors)} colors)" if colors else ""
+            print(f"    {count:3d}× {device}{C.dim(color_tag)}")
+        if unmatched:
+            print(f"    {C.red(f'{len(unmatched)}× unknown')}")
+    print()
 
 def copy_to_clipboard(path):
     """Copy image to macOS clipboard."""
@@ -936,8 +1012,8 @@ def build_parser():
     sub.add_parser("colors", help="Browse all device colors")
 
     # Info command
-    info_p = sub.add_parser("info", help="Detect device without framing")
-    info_p.add_argument("files", nargs="+", help="Screenshot files")
+    info_p = sub.add_parser("info", help="Detect device for screenshots or folders")
+    info_p.add_argument("files", nargs="+", help="Screenshot files or directories to scan")
 
     # Setup command
     setup_p = sub.add_parser("setup", help="Configure assets directory path")
