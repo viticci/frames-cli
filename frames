@@ -9,11 +9,11 @@ use in terminal workflows and AI agent pipelines.
 Assets are read from the Shortcuts iCloud container (NewFrames folder).
 """
 
-import argparse, curses, json, os, random, re, subprocess, sys
+import argparse, json, os, random, subprocess, sys
 from pathlib import Path
 
 try:
-    from PIL import Image
+    from PIL import Image, UnidentifiedImageError
 except ImportError:
     print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
     sys.exit(1)
@@ -23,6 +23,8 @@ HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_ASSETS = HOME / "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames"
+LARGE_IMAGE_WARN_DIMENSION = 20000
+LARGE_IMAGE_MAX_DIMENSION = 50000
 
 def get_assets_dir(args_assets=None):
     """Resolve assets directory: CLI flag > env var > config file > default."""
@@ -199,8 +201,12 @@ def load_json(assets_dir):
     if not json_path.exists():
         print(f"{C.red('Error')}: NewFrames.json not found at {json_path}", file=sys.stderr)
         sys.exit(1)
-    with open(json_path) as f:
-        return json.load(f)
+    try:
+        with open(json_path) as f:
+            return json.load(f)
+    except json.JSONDecodeError as e:
+        print(f"{C.red('Error')}: Invalid JSON in {json_path}: {e}", file=sys.stderr)
+        sys.exit(1)
 
 def detect_device(img, device_dict):
     """Detect device from screenshot dimensions using width + overlap height check."""
@@ -217,6 +223,8 @@ def detect_device(img, device_dict):
         height_key = str(h)
         if height_key in entry["overlap"]:
             entry = entry["overlap"][height_key]
+        else:
+            return None, None
 
     return entry, entry["name"]
 
@@ -230,8 +238,6 @@ def resolve_variant(model_name, device_dict):
 
     if default_variant != model_name:
         # Load variant device data from JSON
-        variant_key = f"variants.{default_variant}"
-        # Try dot notation first, then nested
         if "variants" in device_dict and default_variant in device_dict["variants"]:
             variant_data = device_dict["variants"][default_variant]
             return variant_data, variant_data["name"]
@@ -342,10 +348,41 @@ def merge_images(images, spacing=60):
 
     return merged
 
+def ensure_output_dir(path):
+    """Create output directory or raise a clean write error."""
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as e:
+        raise OSError(f"Could not create output directory {path}: {e}") from e
+
+def save_png(image, path):
+    """Save a PNG or raise a clean write error."""
+    try:
+        image.save(path, "PNG")
+    except OSError as e:
+        raise OSError(f"Could not save {path}: {e}") from e
+
+def guard_image_size(width, height, source):
+    """Warn on very large images and reject extreme dimensions."""
+    largest = max(width, height)
+    if largest > LARGE_IMAGE_MAX_DIMENSION:
+        raise ValueError(
+            f"Refusing to process {source}: image dimensions exceed "
+            f"{LARGE_IMAGE_MAX_DIMENSION}px ({width}x{height})."
+        )
+    if largest > LARGE_IMAGE_WARN_DIMENSION:
+        print(
+            f"{C.yellow('Warning')}: Large image {source} ({width}x{height}) "
+            f"may use significant memory.",
+            file=sys.stderr,
+        )
+
 def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_device=None, verbose=False):
     """Frame a single screenshot. Returns (framed_image, device_info_dict) or raises."""
-    img = Image.open(img_path).convert("RGBA")
+    img = Image.open(img_path)
     w, h = img.size
+    guard_image_size(w, h, img_path)
+    img = img.convert("RGBA")
 
     # 1. Device detection
     if force_device:
@@ -369,12 +406,13 @@ def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_de
         if not entry:
             raise ValueError(f"Unknown device for {w}x{h} screenshot. Use 'frames list' to see supported devices.")
 
-    # 2. Variant resolution
-    variant_data, model_name = resolve_variant(model_name, device_dict)
-    if variant_data:
-        entry = variant_data
-        if verbose:
-            print(f"  {C.dim('Variant resolved:')} {model_name}")
+    # 2. Variant resolution (skip auto-resolution when --device explicitly selects a frame)
+    if not force_device:
+        variant_data, model_name = resolve_variant(model_name, device_dict)
+        if variant_data:
+            entry = variant_data
+            if verbose:
+                print(f"  {C.dim('Variant resolved:')} {model_name}")
 
     # 3. Color
     has_colors = entry.get("colors") == "yes"
@@ -434,6 +472,14 @@ def cmd_frame(args):
         print(f"{C.red('Error')}: No input files specified.", file=sys.stderr)
         sys.exit(1)
 
+    batch_size = getattr(args, 'batch', None)
+    if batch_size is not None and batch_size < 2:
+        print(f"{C.red('Error')}: --batch must be at least 2.", file=sys.stderr)
+        sys.exit(1)
+    if args.spacing < 0:
+        print(f"{C.red('Error')}: --spacing must be 0 or greater.", file=sys.stderr)
+        sys.exit(1)
+
     # Expand directories into image files
     expanded = _gather_image_paths(args.files)
     if not expanded:
@@ -462,7 +508,7 @@ def cmd_frame(args):
                 color_str = f" ({C.rgb(235, 125, 40, info['color'])})" if info["color"] else ""
                 print(f"{C.green(info['device'])}{color_str}")
 
-        except (ValueError, FileNotFoundError) as e:
+        except (ValueError, FileNotFoundError, OSError, UnidentifiedImageError) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
             continue
 
@@ -471,7 +517,6 @@ def cmd_frame(args):
         sys.exit(1)
 
     # Merge if requested (--merge or --batch implies merge)
-    batch_size = getattr(args, 'batch', None)
     do_merge = args.merge or batch_size
 
     if do_merge and len(framed) > 1:
@@ -487,7 +532,11 @@ def cmd_frame(args):
             out_dir = framed[0][1].parent / get_subfolder_setting(args)
         else:
             out_dir = framed[0][1].parent
-        out_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            ensure_output_dir(out_dir)
+        except OSError as e:
+            print(f"{C.red('Error')}: {e}", file=sys.stderr)
+            sys.exit(1)
 
         merged_outputs = []
         for batch_idx, batch in enumerate(batches):
@@ -503,7 +552,11 @@ def cmd_frame(args):
                 out_name = f"merged_{batch_idx + 1}_framed.png"
 
             out_path = out_dir / out_name
-            merged.save(out_path, "PNG")
+            try:
+                save_png(merged, out_path)
+            except OSError as e:
+                print(f"{C.red('Error')}: {e}", file=sys.stderr)
+                sys.exit(1)
             merged_outputs.append(str(out_path))
 
             if not args.json:
@@ -511,7 +564,7 @@ def cmd_frame(args):
                 print(f"\n  {C.green('Merged')} {batch_count} frames → {C.bold(str(out_path))}")
 
         if args.copy and len(merged_outputs) == 1:
-            copy_to_clipboard(Path(merged_outputs[0]))
+            copy_to_clipboard(Path(merged_outputs[0]), announce=not args.json)
 
         if args.json:
             if len(batches) == 1:
@@ -535,11 +588,14 @@ def cmd_frame(args):
                 out_dir = src_path.parent / get_subfolder_setting(args)
             else:
                 out_dir = src_path.parent
-            out_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                ensure_output_dir(out_dir)
+                out_path = out_dir / f"{src_path.stem}_framed.png"
+                save_png(result_img, out_path)
+            except OSError as e:
+                print(f"{C.red('Error')}: {e}", file=sys.stderr)
+                sys.exit(1)
 
-            stem = src_path.stem
-            out_path = out_dir / f"{stem}_framed.png"
-            result_img.save(out_path, "PNG")
             info["output"] = str(out_path)
             outputs.append(str(out_path))
 
@@ -547,7 +603,7 @@ def cmd_frame(args):
                 print(f"  {C.dim('→')} {C.bold(str(out_path))}")
 
         if args.copy and len(outputs) == 1:
-            copy_to_clipboard(Path(outputs[0]))
+            copy_to_clipboard(Path(outputs[0]), announce=not args.json)
 
         if args.json:
             if len(infos) == 1:
@@ -634,15 +690,30 @@ def _build_device_list():
             devices.append((base, list(colors)))
     return devices
 
+def _print_colors_fallback():
+    """Print device colors without curses."""
+    O = lambda t: C.rgb(232, 114, 42, t)
+    devices = _build_device_list()
+    cfg = load_config()
+    user_defaults = cfg.get("default_colors", {})
+    print(f"\n  {C.bold('All Device Colors')}\n")
+    for base, colors in devices:
+        print(f"  {C.bold(base)}")
+        for i, color in enumerate(colors):
+            is_default = (base in user_defaults and user_defaults[base] == color) or (base not in user_defaults and i == 0)
+            marker = O("●") if is_default else C.dim("○")
+            print(f"    {marker} {color}")
+        print()
+
 def _colors_curses(stdscr):
     """Curses-based interactive color picker."""
+    import curses
+
     curses.curs_set(0)
     curses.use_default_colors()
     curses.start_color()
     curses.init_pair(1, 209, -1)   # Orange
     curses.init_pair(2, 250, -1)   # Dim
-    curses.init_pair(3, 15, -1)    # Bold white
-    curses.init_pair(4, 46, -1)    # Green
 
     devices = _build_device_list()
     cfg = load_config()
@@ -759,18 +830,14 @@ def cmd_colors(args):
     O = lambda t: C.rgb(232, 114, 42, t)
 
     if not sys.stdin.isatty():
-        # Non-interactive fallback
-        devices = _build_device_list()
-        cfg = load_config()
-        user_defaults = cfg.get("default_colors", {})
-        print(f"\n  {C.bold('All Device Colors')}\n")
-        for base, colors in devices:
-            print(f"  {C.bold(base)}")
-            for i, color in enumerate(colors):
-                is_default = (base in user_defaults and user_defaults[base] == color) or (base not in user_defaults and i == 0)
-                marker = O("●") if is_default else C.dim("○")
-                print(f"    {marker} {color}")
-            print()
+        _print_colors_fallback()
+        return
+
+    try:
+        import curses
+    except ImportError:
+        print(f"{C.yellow('Warning')}: curses is unavailable. Showing non-interactive color list instead.", file=sys.stderr)
+        _print_colors_fallback()
         return
 
     changed, selected, devices = curses.wrapper(_colors_curses)
@@ -806,19 +873,11 @@ def cmd_setup(args):
     device_count = len([k for k in device_dict if k != "variants"])
 
     # Save config
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    config = {}
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE) as f:
-                config = json.load(f)
-        except json.JSONDecodeError:
-            pass
+    config = load_config()
     config["assets_path"] = str(assets_path)
     if hasattr(args, 'subfolder') and args.subfolder is not None:
         config["use_subfolder"] = args.subfolder
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+    save_config(config)
 
     subfolder_status = config.get("use_subfolder", False)
 
@@ -853,6 +912,7 @@ def _info_for_image(p, device_dict):
     """Analyze a single image. Returns an info dict."""
     img = Image.open(p)
     w, h = img.size
+    guard_image_size(w, h, p)
     info = {"file": str(p), "name": p.name, "width": w, "height": h}
 
     entry, model_name = detect_device(img, device_dict)
@@ -916,12 +976,12 @@ def cmd_info(args):
     for r in results:
         print()
         print(f"  {C.bold(r['name'])}")
-        dims = f'{r["width"]} × {r["height"]}'
-        print(f"  {C.dim(dims)}")
-
         if r.get("error"):
             print(f"  {C.red('✗')} {r['error']}")
             continue
+
+        dims = f'{r["width"]} × {r["height"]}'
+        print(f"  {C.dim(dims)}")
 
         device = r["device"]
         colors = r.get("colors", [])
@@ -960,15 +1020,17 @@ def cmd_info(args):
             print(f"    {C.red(f'{len(unmatched)}× unknown')}")
     print()
 
-def copy_to_clipboard(path):
+def copy_to_clipboard(path, announce=True):
     """Copy image to macOS clipboard."""
     try:
+        safe_path = str(path).replace("\\", "\\\\").replace('"', '\\"')
         subprocess.run([
             "osascript", "-e",
-            f'set the clipboard to (read (POSIX file "{path}") as «class PNGf»)'
+            f'set the clipboard to (read (POSIX file "{safe_path}") as «class PNGf»)'
         ], check=True, capture_output=True)
-        print(f"  {C.green('Copied to clipboard')}")
-    except subprocess.CalledProcessError:
+        if announce:
+            print(f"  {C.green('Copied to clipboard')}", file=sys.stderr)
+    except (subprocess.CalledProcessError, FileNotFoundError):
         print(f"  {C.yellow('Warning')}: Could not copy to clipboard", file=sys.stderr)
 
 # ── Argument Parsing ─────────────────────────────────────────────────────────
@@ -1031,9 +1093,27 @@ def main():
     known_cmds = {"frame", "list", "list-colors", "colors", "info", "setup", "-h", "--help", "--version"}
     argv = sys.argv[1:]
     if argv:
-        first_non_flag = next((a for a in argv if not a.startswith("-")), None)
-        if first_non_flag and first_non_flag not in known_cmds:
-            argv = ["frame"] + argv
+        global_flags = {"-h", "--help", "--version", "--no-color", "--json", "-v", "--verbose"}
+        insert_at = 0
+        idx = 0
+        while idx < len(argv):
+            arg = argv[idx]
+            if arg in known_cmds:
+                break
+            if arg in global_flags:
+                idx += 1
+                insert_at = idx
+                continue
+            if arg == "--assets":
+                idx += 2
+                insert_at = min(idx, len(argv))
+                continue
+            if arg.startswith("--assets="):
+                idx += 1
+                insert_at = idx
+                continue
+            argv = argv[:insert_at] + ["frame"] + argv[insert_at:]
+            break
 
     args = p.parse_args(argv)
 
@@ -1079,8 +1159,6 @@ def main():
             print(f"  {C.dim('~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/NewFrames/')}\n")
             sys.exit(1)
         handler(args)
-    else:
-        show_splash()
 
 if __name__ == "__main__":
     main()
