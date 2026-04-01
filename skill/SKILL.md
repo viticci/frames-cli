@@ -5,7 +5,7 @@ description: Frame screenshots with Apple device bezels using the `frames` CLI. 
 
 # Apple Frames CLI
 
-`frames` is a Python CLI at `~/bin/frames` that frames device screenshots with Apple product bezels. It replicates the Apple Frames shortcut functionality for terminal and AI agent workflows. Source repo: `~/Projects/frames-cli/`.
+`frames` is a Python CLI that frames device screenshots with Apple product bezels. It replicates the Apple Frames shortcut functionality for terminal and AI agent workflows.
 
 ## Quick Reference
 
