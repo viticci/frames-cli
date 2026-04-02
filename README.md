@@ -398,7 +398,7 @@ frames -f ~/screenshots/*.png
 | iPhone 8 / SE | iPhone 8, SE | Portrait |
 | iPad | Pro 11" / 13" (2018-2024), Air, mini | Portrait + landscape |
 | MacBook | Neo, Air M5 13"/15", Pro M5 14"/16", Pro 2021, Air 2020-2022, Pro 13 | Front-facing |
-| iMac | iMac 2021 | 7 colors |
+| iMac | iMac 2021 | Single frame (no color variants) |
 | Apple Watch | Ultra 3, Ultra 2024, Series 11, Series 10, Series 7 | Including band combinations |
 
 Watch Ultra 3 supports 13 case + band combinations. Watch Series 11 supports 22 case + band combinations per size. All devices that have landscape variants support both orientations.

@@ -173,7 +173,6 @@ FRAME_COLORS = {
     "MacBook Air M5 15":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
     "Watch Series 11 42":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
     "Watch Series 11 46":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
-    "iMac 2021":                   ["Blue", "Green", "Pink", "Silver", "Yellow", "Orange", "Purple"],
 }
 
 # Frame Variants: first item = default device
@@ -642,7 +641,8 @@ def cmd_list(args):
                 flags = []
                 if has_colors:
                     colors = FRAME_COLORS.get(name, [])
-                    flags.append(f"{len(colors)} colors")
+                    if colors:
+                        flags.append(f"{len(colors)} colors")
                 if resize:
                     flags.append("scaled")
                 flag_str = C.dim(f" ({', '.join(flags)})") if flags else ""
