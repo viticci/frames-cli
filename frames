@@ -385,7 +385,7 @@ def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_de
 
     # 1. Device detection
     if force_device:
-        # Find the device in JSON by name
+        # Find the device in JSON by name (including inside overlap sub-entries)
         entry = None
         for key, val in device_dict.items():
             if key == "variants":
@@ -393,6 +393,13 @@ def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_de
             if val.get("name") == force_device:
                 entry = val
                 break
+            if "overlap" in val:
+                for hval in val["overlap"].values():
+                    if hval.get("name") == force_device:
+                        entry = hval
+                        break
+                if entry:
+                    break
         if not entry:
             # Check variants
             if "variants" in device_dict and force_device in device_dict["variants"]:
@@ -631,23 +638,30 @@ def cmd_list(args):
         if key == "variants":
             continue
         entry = device_dict[key]
-        name = entry["name"]
-        has_colors = entry.get("colors") == "yes"
-        has_mask = entry.get("mask") == "yes"
-        resize = entry.get("resizeWidth")
 
-        for cat in categories:
-            if name.startswith(cat) or (cat == "MacBook" and "MacBook" in name) or (cat == "Watch" and "Watch" in name):
-                flags = []
-                if has_colors:
-                    colors = FRAME_COLORS.get(name, [])
-                    if colors:
-                        flags.append(f"{len(colors)} colors")
-                if resize:
-                    flags.append("scaled")
-                flag_str = C.dim(f" ({', '.join(flags)})") if flags else ""
-                categories[cat].append(f"    {C.cyan(f'{key:>5}px')} → {name}{flag_str}")
-                break
+        # Expand overlap entries (detect_device only checks overlap sub-entries)
+        if "overlap" in entry:
+            sub_entries = list(entry["overlap"].values())
+        else:
+            sub_entries = [entry]
+
+        for sub in sub_entries:
+            name = sub["name"]
+            has_colors = sub.get("colors") == "yes"
+            resize = sub.get("resizeWidth")
+
+            for cat in categories:
+                if name.startswith(cat) or (cat == "MacBook" and "MacBook" in name) or (cat == "Watch" and "Watch" in name):
+                    flags = []
+                    if has_colors:
+                        colors = FRAME_COLORS.get(name, [])
+                        if colors:
+                            flags.append(f"{len(colors)} colors")
+                    if resize:
+                        flags.append("scaled")
+                    flag_str = C.dim(f" ({', '.join(flags)})") if flags else ""
+                    categories[cat].append(f"    {C.cyan(f'{key:>5}px')} → {name}{flag_str}")
+                    break
 
     for cat, entries in categories.items():
         if entries:
