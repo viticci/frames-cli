@@ -171,6 +171,9 @@ FRAME_COLORS = {
     "Watch Ultra 2024":            ["Orange Beige Trail Loop", "Blue Alpine Loop", "Orange Ocean Band", "Black + Alpine Loop Dark Green", "Black + Alpine Loop Navy", "Black + Alpine Loop Tan", "Black + Ocean Band Black", "Black + Ocean Band Ice Blue", "Black + Ocean Band Navy", "Black + Titanium Milanese Loop", "Black + Trail Loop Black", "Black + Trail Loop Blue", "Black + Trail Loop Green", "Natural + Alpine Loop Dark Green", "Natural + Alpine Loop Navy", "Natural + Alpine Loop Tan", "Natural + Ocean Band Black", "Natural + Ocean Band Ice Blue", "Natural + Ocean Band Navy", "Natural + Titanium Milanese Loop", "Natural + Trail Loop Black", "Natural + Trail Loop Blue"],
     "MacBook Air M5 13":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
     "MacBook Air M5 15":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
+    "iMac M4":                     ["Silver", "Blue", "Green", "Orange", "Pink", "Purple", "Yellow"],
+    "Studio Display":              ["Light", "Dark"],
+    "Studio Display XDR":          ["Light", "Dark"],
     "Watch Series 11 42":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
     "Watch Series 11 46":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
 }
@@ -188,6 +191,7 @@ FRAME_VARIANTS = {
     "MacBook Pro M5 14":           ["MacBook Pro M5 14", "MacBook Pro 2021 14"],
     "MacBook Pro M5 16":           ["MacBook Pro M5 16", "MacBook Pro 2021 16"],
     "MacBook Air M5 13":           ["MacBook Air M5 13", "MacBook Air 2022"],
+    "Studio Display":              ["Studio Display", "Studio Display XDR"],
     "Watch Series 11 42":          ["Watch Series 11 42", "Watch Series 10 42"],
     "Watch Series 11 46":          ["Watch Series 11 46", "Watch Series 10 46"],
 }
@@ -631,7 +635,7 @@ def cmd_list(args):
     categories = {
         "iPhone 17": [], "iPhone Air": [], "iPhone 16": [],
         "iPhone 12-13": [], "iPhone 8": [],
-        "iPad": [], "MacBook": [], "iMac": [], "Watch": [],
+        "iPad": [], "MacBook": [], "iMac": [], "Studio Display": [], "Watch": [],
     }
 
     for key in sorted(device_dict.keys(), key=lambda k: int(k) if k != "variants" else 0):
@@ -651,7 +655,7 @@ def cmd_list(args):
             resize = sub.get("resizeWidth")
 
             for cat in categories:
-                if name.startswith(cat) or (cat == "MacBook" and "MacBook" in name) or (cat == "Watch" and "Watch" in name):
+                if name.startswith(cat) or (cat == "MacBook" and "MacBook" in name) or (cat == "Watch" and "Watch" in name) or (cat == "Studio Display" and "Studio Display" in name):
                     flags = []
                     if has_colors:
                         colors = FRAME_COLORS.get(name, [])

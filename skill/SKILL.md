@@ -163,6 +163,6 @@ The folder contains `NewFrames.json` (device dictionary) and hundreds of frame/m
 
 Override with `--assets /path/to/assets/`, `FRAMES_ASSETS` env var, or `frames setup`.
 
-## Supported Devices (v1.0)
+## Supported Devices (v1.1)
 
-iPhone 17 family (17, 17 Pro, 17 Pro Max), iPhone Air, iPhone 16 family (16, 16 Plus, 16 Pro, 16 Pro Max), iPhone 12-13 family, iPhone 8/SE, iPad Pro (2018-2024), iPad Air, iPad mini, MacBook Neo, MacBook Pro M5 14"/16", MacBook Pro 2021, MacBook Air M5 13"/15", MacBook Air 2022, iMac 2021, Apple Watch Series 10-11, Apple Watch Ultra 2024, Apple Watch Ultra 3.
+iPhone 17 family (17, 17 Pro, 17 Pro Max), iPhone Air, iPhone 16 family (16, 16 Plus, 16 Pro, 16 Pro Max), iPhone 12-13 family, iPhone 8/SE, iPad Pro (2018-2024), iPad Air, iPad mini, MacBook Neo, MacBook Pro M5 14"/16", MacBook Pro 2021, MacBook Air M5 13"/15", MacBook Air 2022, iMac M4 (7 colors), Studio Display, Studio Display XDR, Apple Watch Series 10-11, Apple Watch Ultra 2024, Apple Watch Ultra 3.
