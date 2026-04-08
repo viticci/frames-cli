@@ -67,7 +67,10 @@ frames -f screenshot.png
 # Save to custom subfolder
 frames --subfolder mockups screenshot.png
 
-# Configure assets folder
+# Download + configure assets (interactive)
+frames setup
+
+# Or point to existing assets folder
 frames setup /path/to/Frames
 
 # Verbose output
@@ -96,7 +99,7 @@ frames -v screenshot.png
 
 Config file: `~/.config/frames/config.json`
 
-Set up via `frames setup /path/to/assets` or edit directly. Keys:
+Set up via `frames setup` (downloads assets interactively) or `frames setup /path/to/assets`. Re-run `frames setup` to re-download if assets get corrupted. Keys:
 
 - `assets_path` — path to the Frames assets folder
 - `default_colors` — per-device default color choices (set via `frames colors` TUI)
@@ -156,12 +159,13 @@ frames -b 3 -c random *.png
 
 ## Assets
 
-The CLI reads frame assets from the Shortcuts iCloud container:
-`~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames/`
+On first run, the CLI auto-detects missing or outdated assets and offers to download Apple Frames 4 (~40 MB) from `cdn.macstories.net`. Run `frames setup` to download interactively, or re-download if assets get corrupted.
 
-The folder contains `NewFrames.json` (device dictionary) and hundreds of frame/mask PNGs.
+Default location: `~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames/`
 
-Override with `--assets /path/to/assets/`, `FRAMES_ASSETS` env var, or `frames setup`.
+The folder contains `NewFrames.json` (device dictionary), `version.txt`, and hundreds of frame/mask PNGs.
+
+Override with `--assets /path/to/assets/`, `FRAMES_ASSETS` env var, or `frames setup /path`.
 
 ## Supported Devices (v1.1)
 

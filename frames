@@ -18,11 +18,13 @@ except ImportError:
     print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
     sys.exit(1)
 
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 DEFAULT_ASSETS = HOME / "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames"
+ASSETS_URL = "https://cdn.macstories.net/AppleFrames4.zip"
+ASSETS_MIN_VERSION = 4
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
 
@@ -55,6 +57,158 @@ def get_subfolder_setting(args):
     elif isinstance(sub, str):
         return sub
     return None
+
+# ── Asset Management ────────────────────────────────────────────────────────
+
+def check_assets_version(assets_dir):
+    """Check if assets directory has valid Apple Frames 4+ assets.
+    Returns (ok, version_or_none)."""
+    assets_dir = Path(assets_dir)
+    json_path = assets_dir / "NewFrames.json"
+
+    if not assets_dir.exists() or not json_path.exists():
+        return False, None
+
+    version_path = assets_dir / "version.txt"
+    if version_path.exists():
+        try:
+            ver = version_path.read_text().strip().split('\n')[0].strip()
+            major = int(ver.split('.')[0])
+            return major >= ASSETS_MIN_VERSION, major
+        except (ValueError, IndexError):
+            pass
+
+    # No version.txt — check for v4 indicators in JSON
+    try:
+        with open(json_path) as f:
+            data = json.load(f)
+        if "variants" in data:
+            return True, 4
+        return False, None
+    except (json.JSONDecodeError, IOError):
+        return False, None
+
+def download_assets(dest_dir):
+    """Download and extract Apple Frames 4 assets. Returns True on success."""
+    import urllib.request, urllib.error, zipfile, tempfile, shutil
+
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+
+    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+        tmp_path = tmp.name
+
+    try:
+        def progress(block_num, block_size, total_size):
+            if total_size > 0:
+                pct = min(100, int(block_num * block_size * 100 / total_size))
+                filled = int(25 * pct / 100)
+                bar = '\u2588' * filled + '\u2591' * (25 - filled)
+                mb = total_size / (1024 * 1024)
+                print(f"\r  Downloading [{C.rgb(232,114,42, bar)}] {pct}% of {mb:.0f} MB ", end="", flush=True)
+
+        print(f"  {C.dim('Connecting to cdn.macstories.net...')}", flush=True)
+        urllib.request.urlretrieve(ASSETS_URL, tmp_path, reporthook=progress)
+        print()
+
+        print(f"  {C.dim('Extracting...')}", end=" ", flush=True)
+        with zipfile.ZipFile(tmp_path, 'r') as zf:
+            names = [n for n in zf.namelist() if not n.startswith('__MACOSX')]
+            top_items = set(n.split('/')[0] for n in names if n)
+
+            if len(top_items) == 1:
+                prefix = top_items.pop() + '/'
+                for member in zf.infolist():
+                    if member.filename.startswith('__MACOSX'):
+                        continue
+                    if member.filename.startswith(prefix) and len(member.filename) > len(prefix):
+                        member.filename = member.filename[len(prefix):]
+                        zf.extract(member, dest_dir)
+            else:
+                for member in zf.infolist():
+                    if not member.filename.startswith('__MACOSX'):
+                        zf.extract(member, dest_dir)
+
+        # Validate — NewFrames.json must exist
+        json_path = dest_dir / "NewFrames.json"
+        if not json_path.exists():
+            found = list(dest_dir.rglob("NewFrames.json"))
+            if found:
+                src = found[0].parent
+                for item in src.iterdir():
+                    shutil.move(str(item), str(dest_dir / item.name))
+            else:
+                print(C.red('failed'))
+                print(f"  {C.red('Error')}: NewFrames.json not found in archive.", file=sys.stderr)
+                return False
+
+        pngs = list(dest_dir.glob("*.png"))
+        print(C.green('done!'))
+        print(f"  {C.bold(str(len(pngs)))} frame assets installed")
+        return True
+
+    except urllib.error.URLError as e:
+        print(f"\n  {C.red('Download failed')}: {e.reason}", file=sys.stderr)
+        return False
+    except zipfile.BadZipFile:
+        print(f"\n  {C.red('Error')}: Downloaded file is corrupted.", file=sys.stderr)
+        return False
+    except OSError as e:
+        print(f"\n  {C.red('Error')}: {e}", file=sys.stderr)
+        return False
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+
+def guided_setup(reason=None):
+    """Interactive guided setup — download and install Apple Frames 4 assets.
+    Returns True on success, False if cancelled or failed."""
+    default_path = DEFAULT_ASSETS
+    short_default = str(default_path).replace(str(HOME), "~")
+
+    print()
+    if reason:
+        print(f"  {C.bold('Apple Frames 4')} assets {reason}.")
+    else:
+        print(f"  {C.bold('Apple Frames 4')} asset setup")
+    print()
+    print(f"  Download device frames from {C.cyan('cdn.macstories.net')}? (~40 MB)")
+    print()
+    print(f"  {C.dim('Location')} [{C.cyan(short_default)}]")
+    print(f"  {C.dim('Enter = default, type a path to override, q = cancel')}")
+    print()
+
+    try:
+        choice = input(f"  {C.bold('›')} ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print(f"\n\n  {C.dim('Cancelled.')}\n")
+        return False
+
+    if choice.lower() in ('q', 'quit', 'n', 'no'):
+        print(f"\n  {C.dim('Cancelled.')}\n")
+        return False
+
+    dest = Path(choice).expanduser().resolve() if choice else default_path
+
+    print()
+    if not download_assets(dest):
+        return False
+
+    config = load_config()
+    config["assets_path"] = str(dest)
+    save_config(config)
+
+    short_dest = str(dest).replace(str(HOME), "~")
+    print()
+    print(f"  {C.green('Setup complete!')}")
+    print(f"  {C.bold('Assets:')}  {short_dest}")
+    print(f"  {C.bold('Config:')}  {CONFIG_FILE}")
+    print()
+    print(f"  {C.dim('Run')} {C.cyan('frames')} screenshot.png {C.dim('to get started.')}")
+    print()
+    return True
 
 # ── Color System ─────────────────────────────────────────────────────────────
 
@@ -142,7 +296,7 @@ def show_splash():
     print(f"    {C.cyan('frames')} info ~/Screenshots/     {C.dim('Scan folder for device matches')}")
     print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
     print(f"    {C.cyan('frames')} list                   {C.dim('Show supported devices')}")
-    print(f"    {C.cyan('frames')} setup /path/to/assets   {C.dim('Configure assets folder')}")
+    print(f"    {C.cyan('frames')} setup                  {C.dim('Download + configure assets')}")
     print()
 
 # ── Frame Colors Dictionary ──────────────────────────────────────────────────
@@ -870,7 +1024,15 @@ def cmd_colors(args):
         print(f"\n  {C.dim('No changes saved.')}\n")
 
 def cmd_setup(args):
-    """Configure the assets directory path."""
+    """Configure the assets directory path, or download assets interactively."""
+    if args.path is None:
+        if not sys.stdin.isatty():
+            print(f"{C.red('Error')}: Run 'frames setup' in an interactive terminal, or provide a path.", file=sys.stderr)
+            sys.exit(1)
+        if guided_setup():
+            return
+        sys.exit(1)
+
     assets_path = Path(args.path).resolve()
 
     # Validate the path
@@ -1096,8 +1258,8 @@ def build_parser():
     info_p.add_argument("files", nargs="+", help="Screenshot files or directories to scan")
 
     # Setup command
-    setup_p = sub.add_parser("setup", help="Configure assets directory path")
-    setup_p.add_argument("path", help="Path to Frames assets folder")
+    setup_p = sub.add_parser("setup", help="Download assets or configure path")
+    setup_p.add_argument("path", nargs='?', default=None, help="Path to assets folder (omit to download)")
     setup_p.add_argument("--subfolder", action="store_true", default=None, help="Save framed images to /framed/ subfolder")
     setup_p.add_argument("--no-subfolder", action="store_false", dest="subfolder", help="Save framed images next to originals (default)")
 
@@ -1168,14 +1330,22 @@ def main():
     }
     handler = cmds.get(args.cmd)
     if handler:
-        # Check assets exist (except for setup and colors)
-        if args.cmd not in ("setup", "colors", "list-colors") and not Path(args.assets).exists():
-            print(f"\n  {C.red('Assets not found!')} Run setup first:\n")
-            print(f"    {C.cyan('frames')} setup /path/to/NewFrames\n")
-            print(f"  {C.dim('The NewFrames folder contains frame PNGs and NewFrames.json.')}")
-            print(f"  {C.dim('If using the Apple Frames shortcut, it is typically at:')}")
-            print(f"  {C.dim('~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/NewFrames/')}\n")
-            sys.exit(1)
+        # Check assets exist and are v4+ (except for setup, colors, list-colors)
+        if args.cmd not in ("setup", "colors", "list-colors"):
+            ok, ver = check_assets_version(Path(args.assets))
+            if not ok:
+                if not sys.stdin.isatty() or args.json:
+                    reason = "not found" if ver is None else f"outdated (version {ver})"
+                    if args.json:
+                        print(json.dumps({"error": f"Assets {reason}", "setup_required": True}))
+                    else:
+                        print(f"{C.red('Error')}: Assets {reason}. Run 'frames setup' interactively.", file=sys.stderr)
+                    sys.exit(1)
+                reason = "not found" if ver is None else f"outdated (version {ver})"
+                if guided_setup(reason=reason):
+                    args.assets = str(get_assets_dir())
+                else:
+                    sys.exit(1)
         handler(args)
 
 if __name__ == "__main__":

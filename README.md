@@ -74,13 +74,17 @@ Then restart your terminal or run `source ~/.zshrc`.
 
 ### Setup
 
-Run setup to point the CLI at your Apple Frames asset pack:
+The CLI will automatically detect and download Apple Frames 4 assets on first run. You can also set up manually:
 
-```
+```bash
+# Guided download (interactive — downloads ~40 MB from cdn.macstories.net)
+frames setup
+
+# Or point to an existing assets folder
 frames setup /path/to/Frames
 ```
 
-This writes the path to `~/.config/frames/config.json`. You only need to run this once. The asset folder should contain `NewFrames.json` and the frame PNG files.
+The guided setup downloads the asset pack, extracts it, and saves the path to `~/.config/frames/config.json`. If assets get corrupted or you need a fresh copy, run `frames setup` again to re-download.
 
 You can also set the `FRAMES_ASSETS` environment variable instead of using the config file.
 
@@ -315,13 +319,21 @@ frames --json info screenshot.png
 
 ### `setup`
 
-Configure the path to the Frames assets folder. Validates that `NewFrames.json` exists inside it and reports asset counts. Also controls the subfolder default behavior.
+Download assets or configure the assets folder path. Without arguments, starts an interactive download from `cdn.macstories.net` (~40 MB). With a path, points the CLI at an existing assets folder.
 
 ```bash
+# Download assets interactively (first-time setup or re-download)
+frames setup
+
+# Point to an existing assets folder
 frames setup /path/to/Frames
+
+# With subfolder mode
 frames setup --subfolder /path/to/Frames     # enable subfolder mode by default
 frames setup --no-subfolder /path/to/Frames  # disable subfolder mode (default)
 ```
+
+If assets are missing or outdated when you run any command, the CLI will automatically offer to download them.
 
 ---
 
