@@ -176,8 +176,9 @@ def guided_setup(reason=None):
     print()
     print(f"  Download device frames from {C.cyan('cdn.macstories.net')}? (~40 MB)")
     print()
-    print(f"  {C.dim('Location')} [{C.cyan(short_default)}]")
-    print(f"  {C.dim('Enter = default, type a path to override, q = cancel')}")
+    print(f"  Install to {C.cyan(short_default)}")
+    print()
+    print(f"  {C.bold('Enter')} {C.dim('to confirm  |')}  {C.bold('q')} {C.dim('to cancel  |  or type a different path')}")
     print()
 
     try:
@@ -297,6 +298,17 @@ def show_splash():
     print(f"    {C.cyan('frames')} colors                 {C.dim('Pick default colors per device')}")
     print(f"    {C.cyan('frames')} list                   {C.dim('Show supported devices')}")
     print(f"    {C.cyan('frames')} setup                  {C.dim('Download + configure assets')}")
+
+    # Show asset status
+    assets_dir = get_assets_dir()
+    ok, ver = check_assets_version(assets_dir)
+    if ok:
+        short = str(assets_dir).replace(str(HOME), "~")
+        pngs = len(list(assets_dir.glob("*.png")))
+        print(f"  {C.green('Assets installed')} {C.dim(f'(v{ver}, {pngs} frames)')}")
+        print(f"  {C.dim(short)}")
+    else:
+        print(f"  {C.yellow('Assets not installed.')} Run {C.cyan('frames setup')} to download device frames.")
     print()
 
 # ── Frame Colors Dictionary ──────────────────────────────────────────────────
