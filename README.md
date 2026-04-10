@@ -12,7 +12,7 @@
 ██      ██   ██ ██   ██ ██      ██ ███████ ███████</span>
 </pre>
 
-Frame device screenshots with Apple product bezels from the command line. Auto-detects devices, supports colors, merging, and batch processing. By Federico Viticci.
+Frame device screenshots with Apple product bezels from the command line. Auto-detects devices, supports colors, merging, and batch processing. Based on the Apple Frames shortcut by me for MacStories.net, not affiliated with Apple.
 
 ---
 
