@@ -516,13 +516,18 @@ def merge_images(images, spacing=60, physical_heights=None):
     )
 
     if do_scale:
-        max_ph = max(physical_heights)
+        # Normalize all frames to the same pixels-per-mm ratio.
+        # The device with the lowest px/mm (coarsest frame) keeps native size;
+        # everything else scales down. This avoids upscaling artifacts.
+        px_per_mm = [img.height / ph for img, ph in zip(images, physical_heights)]
+        ref_ppm = min(px_per_mm)
         scaled = []
         for img, ph in zip(images, physical_heights):
-            scale = ph / max_ph
-            if scale < 1.0:
+            target_h = round(ph * ref_ppm)
+            scale = target_h / img.height
+            if scale < 0.999:
                 new_w = max(1, round(img.width * scale))
-                new_h = max(1, round(img.height * scale))
+                new_h = max(1, target_h)
                 scaled.append(img.resize((new_w, new_h), Image.LANCZOS))
             else:
                 scaled.append(img)
@@ -783,12 +788,16 @@ def cmd_frame(args):
             copy_to_clipboard(Path(merged_outputs[0]), announce=not args.json)
 
         if args.json:
-            # Add scale factors to frame infos when proportional scaling was applied
+            # Add scale factors when proportional scaling was applied
             all_phs = [info.get("physicalHeight", 0) for info in infos]
             if not no_scale and all(ph > 0 for ph in all_phs) and len(set(all_phs)) > 1:
-                max_ph = max(all_phs)
-                for info in infos:
-                    info["scale_factor"] = round(info["physicalHeight"] / max_ph, 4)
+                # Mirror the actual merge algorithm: normalize to lowest px/mm
+                frame_heights = [int(info["frame_size"].split("x")[1]) for info in infos]
+                px_per_mm = [fh / ph for fh, ph in zip(frame_heights, all_phs)]
+                ref_ppm = min(px_per_mm)
+                for info, fh, ph in zip(infos, frame_heights, all_phs):
+                    target_h = round(ph * ref_ppm)
+                    info["scale_factor"] = round(target_h / fh, 4)
 
             if len(batches) == 1:
                 result_json = {"merged": merged_outputs[0], "count": len(framed), "frames": infos}
