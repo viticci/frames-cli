@@ -25,8 +25,11 @@ frames -c "Cosmic Orange" screenshot.png
 # Frame with random colors
 frames -c random *.png
 
-# Frame and merge side by side
+# Frame and merge side by side (proportional scaling, bottom-aligned)
 frames -m screenshot1.png screenshot2.png
+
+# Merge without proportional scaling (center-aligned, native sizes)
+frames -m --no-scale screenshot1.png screenshot2.png
 
 # Frame, merge with custom spacing, save to specific dir
 frames -m -s 80 -o /output/dir/ *.png
@@ -93,6 +96,7 @@ frames -v screenshot.png
 - **Device detection**: Automatic from screenshot pixel width (+ height for overlap disambiguation)
 - **Color**: First color in the device's color array, overridable via `frames colors` TUI or config
 - **Variant resolution**: Newest device frame is default when multiple devices share a resolution; skipped when `--device` is explicitly set
+- **Proportional scaling**: When merging different devices, frames are scaled to real-world physical proportions and bottom-aligned. Use `--no-scale` to disable.
 - **Directory input**: Passing a directory expands to all image files inside it (png, jpg, jpeg, heic, tiff, webp)
 
 ## Configuration

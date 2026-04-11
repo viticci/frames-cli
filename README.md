@@ -158,12 +158,24 @@ Partial color name matching is supported. Use `list-colors` to see what's availa
 
 Merge all framed images into a single horizontal strip. Default spacing between frames is 60px.
 
+When merging **different devices**, frames are automatically scaled to reflect real-world physical proportions and bottom-aligned. An iPhone next to an iPad will be proportionally shorter, just like in real life. Same-device merges are unaffected.
+
 ```bash
 frames -m screenshot1.png screenshot2.png screenshot3.png
 frames -m -s 120 screenshot1.png screenshot2.png
 ```
 
 The merged output is saved as `merged_framed.png` in the output directory.
+
+---
+
+### `--no-scale`
+
+Disable proportional scaling when merging. All frames render at native pixel size and are center-aligned (pre-v1.2 behavior).
+
+```bash
+frames -m --no-scale iphone.png ipad.png
+```
 
 ---
 

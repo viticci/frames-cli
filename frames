@@ -18,7 +18,7 @@ except ImportError:
     print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
     sys.exit(1)
 
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -287,8 +287,9 @@ def show_splash():
     print(f"  {C.dim('Quick start:')}")
     print(f"    {C.cyan('frames')} screenshot.png         {C.dim('Frame a screenshot')}")
     print(f"    {C.cyan('frames')} *.png                  {C.dim('Frame all PNGs in directory')}")
-    print(f"    {C.cyan('frames')} -m *.png               {C.dim('Frame and merge side by side')}")
+    print(f"    {C.cyan('frames')} -m *.png               {C.dim('Merge side by side (proportional)')}")
     print(f"    {C.cyan('frames')} -b 3 *.png             {C.dim('Merge in batches of 3')}")
+    print(f"    {C.cyan('frames')} -m --no-scale *.png    {C.dim('Merge without proportional scaling')}")
     print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
     print(f"    {C.cyan('frames')} ~/Screenshots/          {C.dim('Frame all images in a folder')}")
     print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
@@ -499,10 +500,33 @@ def composite(screenshot, frame, x, y):
     canvas.paste(screenshot, (x, y))
     return Image.alpha_composite(canvas, frame)
 
-def merge_images(images, spacing=60):
-    """Merge multiple images horizontally with spacing."""
+def merge_images(images, spacing=60, physical_heights=None):
+    """Merge multiple images horizontally with spacing.
+
+    When physical_heights is provided and values differ, images are scaled
+    proportionally (tallest = 1.0) and bottom-aligned. Otherwise, original
+    center-aligned behavior is preserved."""
     if len(images) == 1:
         return images[0]
+
+    do_scale = (
+        physical_heights is not None
+        and len(physical_heights) == len(images)
+        and len(set(physical_heights)) > 1
+    )
+
+    if do_scale:
+        max_ph = max(physical_heights)
+        scaled = []
+        for img, ph in zip(images, physical_heights):
+            scale = ph / max_ph
+            if scale < 1.0:
+                new_w = max(1, round(img.width * scale))
+                new_h = max(1, round(img.height * scale))
+                scaled.append(img.resize((new_w, new_h), Image.LANCZOS))
+            else:
+                scaled.append(img)
+        images = scaled
 
     total_width = sum(img.width for img in images) + spacing * (len(images) - 1)
     max_height = max(img.height for img in images)
@@ -510,8 +534,10 @@ def merge_images(images, spacing=60):
     merged = Image.new("RGBA", (total_width, max_height), (0, 0, 0, 0))
     x_offset = 0
     for img in images:
-        # Center vertically
-        y_offset = (max_height - img.height) // 2
+        if do_scale:
+            y_offset = max_height - img.height  # Bottom-align
+        else:
+            y_offset = (max_height - img.height) // 2  # Center-align
         merged.paste(img, (x_offset, y_offset), img)
         x_offset += img.width + spacing
 
@@ -633,6 +659,7 @@ def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_de
         "frame_size": f"{result.width}x{result.height}",
         "resized": bool(resize_width),
         "masked": has_mask,
+        "physicalHeight": float(entry.get("physicalHeight", 0)),
     }
 
     return result, info
@@ -717,10 +744,19 @@ def cmd_frame(args):
         merged_outputs = []
         for batch_idx, batch in enumerate(batches):
             images = [f[0] for f in batch]
+
+            # Collect physical heights for proportional scaling
+            no_scale = getattr(args, 'no_scale', False)
+            if not no_scale:
+                phs = [f[2].get("physicalHeight", 0) for f in batch]
+                physical_heights = phs if all(ph > 0 for ph in phs) else None
+            else:
+                physical_heights = None
+
             if len(images) == 1:
                 merged = images[0]
             else:
-                merged = merge_images(images, spacing=args.spacing)
+                merged = merge_images(images, spacing=args.spacing, physical_heights=physical_heights)
 
             if len(batches) == 1:
                 out_name = "merged_framed.png"
@@ -737,12 +773,23 @@ def cmd_frame(args):
 
             if not args.json:
                 batch_count = len(batch)
-                print(f"\n  {C.green('Merged')} {batch_count} frames → {C.bold(str(out_path))}")
+                scaled_msg = ""
+                if physical_heights and len(set(physical_heights)) > 1:
+                    max_ph = max(physical_heights)
+                    scaled_msg = f" {C.dim('(proportional)')}"
+                print(f"\n  {C.green('Merged')} {batch_count} frames → {C.bold(str(out_path))}{scaled_msg}")
 
         if args.copy and len(merged_outputs) == 1:
             copy_to_clipboard(Path(merged_outputs[0]), announce=not args.json)
 
         if args.json:
+            # Add scale factors to frame infos when proportional scaling was applied
+            all_phs = [info.get("physicalHeight", 0) for info in infos]
+            if not no_scale and all(ph > 0 for ph in all_phs) and len(set(all_phs)) > 1:
+                max_ph = max(all_phs)
+                for info in infos:
+                    info["scale_factor"] = round(info["physicalHeight"] / max_ph, 4)
+
             if len(batches) == 1:
                 result_json = {"merged": merged_outputs[0], "count": len(framed), "frames": infos}
             else:
@@ -1248,6 +1295,7 @@ def build_parser():
     frame_p.add_argument("--merge", "-m", action="store_true", help="Merge framed images side by side")
     frame_p.add_argument("--batch", "-b", type=int, metavar="N", help="Merge in batches of N (e.g. -b 3 for groups of 3)")
     frame_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
+    frame_p.add_argument("--no-scale", action="store_true", help="Disable proportional scaling when merging different devices")
     frame_p.add_argument("--output", "-o", help="Output directory")
     frame_p.add_argument("--copy", action="store_true", help="Copy result to clipboard")
     frame_p.add_argument("--device", "-d", help="Force specific device frame")
