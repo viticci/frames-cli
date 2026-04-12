@@ -31,12 +31,12 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.2.5"
+VERSION = "1.2.6"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/Frames40.zip"
+ASSETS_URL = "https://cdn.macstories.net/AppleFrames40.zip"
 ASSETS_MIN_VERSION = 4
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
