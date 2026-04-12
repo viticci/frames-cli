@@ -800,6 +800,7 @@ def frame_screenshot(
 
     # 6. Apply mask
     has_mask = entry.get("mask") == "yes"
+    mask_missing = False
     if has_mask:
         mask = load_mask(assets_dir, model_name)
         if mask:
@@ -809,6 +810,11 @@ def frame_screenshot(
             img = apply_mask(img, mask)
             if verbose:
                 print(f"  {C.dim('Mask applied')}")
+        else:
+            mask_missing = True
+            print(f"  {C.yellow('Warning')}: mask file missing for {model_name} "
+                  f"(expected {model_name}_mask.png). Rendering without mask — "
+                  f"corners may show screenshot bleed.", file=sys.stderr)
 
     # 7. Composite
     x, y = int(entry["x"]), int(entry["y"])
@@ -821,7 +827,8 @@ def frame_screenshot(
         "dimensions": f"{w}x{h}",
         "frame_size": f"{result.width}x{result.height}",
         "resized": bool(resize_width),
-        "masked": has_mask,
+        "masked": has_mask and not mask_missing,
+        "mask_missing": mask_missing,
         "physicalHeight": float(entry.get("physicalHeight", 0)),
     }
 
