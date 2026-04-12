@@ -1,16 +1,27 @@
 #!/usr/bin/env python3
-"""frames — Apple Frames CLI v1.0.0
+"""frames — Apple Frames CLI
 
 Frame device screenshots with Apple product bezels. Auto-detects devices from
 screenshot dimensions, applies colored frames with masks, merges multiple
 screenshots side by side. Replicates Apple Frames shortcut functionality for
 use in terminal workflows and AI agent pipelines.
 
-Assets are read from the Shortcuts iCloud container (NewFrames folder).
+Assets default to the app data directory and legacy Shortcuts locations are
+auto-detected on macOS.
 """
 
-import argparse, json, os, random, subprocess, sys
-from pathlib import Path
+import argparse
+import json
+import os
+import random
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import warnings
+from functools import lru_cache
+from pathlib import Path, PurePosixPath
 
 try:
     from PIL import Image, UnidentifiedImageError
@@ -18,44 +29,94 @@ except ImportError:
     print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
     sys.exit(1)
 
+warnings.simplefilter("error", Image.DecompressionBombWarning)
+
 VERSION = "1.2.0"
+APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-DEFAULT_ASSETS = HOME / "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames"
+LEGACY_ASSETS = HOME / "Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames"
 ASSETS_URL = "https://cdn.macstories.net/AppleFrames4.zip"
 ASSETS_MIN_VERSION = 4
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
+VALID_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".tiff", ".webp"}
+
+
+def get_default_assets_dir(home=None, platform=None, environ=None):
+    """Return the cross-platform default assets directory."""
+    home = Path(home) if home is not None else HOME
+    platform = platform or sys.platform
+    environ = environ or os.environ
+
+    if platform == "darwin":
+        return Path(environ.get("FRAMES_DATA_HOME", home / "Library/Application Support")) / APP_NAME / "assets"
+    if platform.startswith("win"):
+        return Path(environ.get("LOCALAPPDATA", home / "AppData/Local")) / APP_NAME / "assets"
+    return Path(environ.get("XDG_DATA_HOME", home / ".local/share")) / APP_NAME / "assets"
+
+
+DEFAULT_ASSETS = get_default_assets_dir()
+
+
+def _expand_path(path_value):
+    return Path(path_value).expanduser()
+
+
+def _get_config_assets_dir():
+    if CONFIG_FILE.exists():
+        try:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
+                cfg = json.load(f)
+            if "assets_path" in cfg:
+                return _expand_path(cfg["assets_path"])
+        except (json.JSONDecodeError, KeyError, OSError):
+            pass
+    return None
+
+
+def validate_subfolder_name(name):
+    """Allow only a single relative directory component for --subfolder."""
+    candidate = str(name).strip()
+    if not candidate:
+        raise ValueError("Subfolder name cannot be empty.")
+
+    pure = PurePosixPath(candidate.replace("\\", "/"))
+    if pure.is_absolute() or len(pure.parts) != 1 or pure.parts[0] in {".", ".."}:
+        raise ValueError(
+            "Subfolder must be a single directory name without path separators or '..'."
+        )
+
+    return pure.parts[0]
 
 def get_assets_dir(args_assets=None):
     """Resolve assets directory: CLI flag > env var > config file > default."""
-    if args_assets and args_assets != str(DEFAULT_ASSETS):
-        return Path(args_assets)
+    if args_assets is not None:
+        return _expand_path(args_assets)
     env = os.environ.get("FRAMES_ASSETS")
     if env:
-        return Path(env)
-    if CONFIG_FILE.exists():
-        try:
-            with open(CONFIG_FILE) as f:
-                cfg = json.load(f)
-            if "assets_path" in cfg:
-                return Path(cfg["assets_path"])
-        except (json.JSONDecodeError, KeyError):
-            pass
+        return _expand_path(env)
+    configured = _get_config_assets_dir()
+    if configured is not None:
+        return configured
+    if check_assets_version(DEFAULT_ASSETS)[0]:
+        return DEFAULT_ASSETS
+    if check_assets_version(LEGACY_ASSETS)[0]:
+        return LEGACY_ASSETS
     return DEFAULT_ASSETS
 
-def get_subfolder_setting(args):
+def get_subfolder_setting(args, config=None):
     """Get subfolder name if enabled. Returns folder name string or None.
     CLI flag > config > default (None). -f alone = 'framed', -f custom = 'custom'."""
     if hasattr(args, 'subfolder') and args.subfolder is not None:
-        return args.subfolder  # string: "framed" (default) or custom name
-    cfg = load_config()
+        return validate_subfolder_name(args.subfolder)
+    cfg = config if config is not None else load_config()
     sub = cfg.get("use_subfolder", False)
     if sub is True:
         return "framed"
     elif isinstance(sub, str):
-        return sub
+        return validate_subfolder_name(sub)
     return None
 
 # ── Asset Management ────────────────────────────────────────────────────────
@@ -72,7 +133,7 @@ def check_assets_version(assets_dir):
     version_path = assets_dir / "version.txt"
     if version_path.exists():
         try:
-            ver = version_path.read_text().strip().split('\n')[0].strip()
+            ver = version_path.read_text(encoding="utf-8").strip().split('\n')[0].strip()
             major = int(ver.split('.')[0])
             return major >= ASSETS_MIN_VERSION, major
         except (ValueError, IndexError):
@@ -80,7 +141,7 @@ def check_assets_version(assets_dir):
 
     # No version.txt — check for v4 indicators in JSON
     try:
-        with open(json_path) as f:
+        with open(json_path, encoding="utf-8") as f:
             data = json.load(f)
         if "variants" in data:
             return True, 4
@@ -88,14 +149,71 @@ def check_assets_version(assets_dir):
     except (json.JSONDecodeError, IOError):
         return False, None
 
+
+def _zip_member_is_symlink(member):
+    unix_mode = member.external_attr >> 16
+    return stat.S_ISLNK(unix_mode)
+
+
+def _iter_safe_zip_members(zip_file):
+    members = []
+    top_items = set()
+
+    for member in zip_file.infolist():
+        filename = member.filename.replace("\\", "/")
+        if not filename or filename.startswith("__MACOSX/"):
+            continue
+        members.append((member, filename))
+        top_items.add(filename.split("/", 1)[0])
+
+    prefix = ""
+    if len(top_items) == 1:
+        prefix = next(iter(top_items)) + "/"
+
+    for member, filename in members:
+        relative_name = filename
+        if prefix and relative_name.startswith(prefix):
+            relative_name = relative_name[len(prefix):]
+        if not relative_name:
+            continue
+
+        relative_path = PurePosixPath(relative_name)
+        if relative_path.is_absolute() or ".." in relative_path.parts:
+            raise ValueError(f"Archive contains unsafe path: {filename}")
+        if _zip_member_is_symlink(member):
+            raise ValueError(f"Archive contains unsupported symlink: {filename}")
+
+        yield member, relative_path
+
+
+def _extract_zip_to_dir(zip_file, destination):
+    for member, relative_path in _iter_safe_zip_members(zip_file):
+        target = destination.joinpath(*relative_path.parts)
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zip_file.open(member) as src, open(target, "wb") as dst:
+            shutil.copyfileobj(src, dst)
+
+
+def _find_assets_root(path):
+    json_path = path / "NewFrames.json"
+    if json_path.exists():
+        return path
+    found = list(path.rglob("NewFrames.json"))
+    if found:
+        return found[0].parent
+    return None
+
 def download_assets(dest_dir):
     """Download and extract Apple Frames 4 assets. Returns True on success."""
-    import urllib.request, urllib.error, zipfile, tempfile, shutil
+    import urllib.request, urllib.error, zipfile
 
     dest_dir = Path(dest_dir)
-    dest_dir.mkdir(parents=True, exist_ok=True)
 
-    with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
@@ -112,35 +230,24 @@ def download_assets(dest_dir):
         print()
 
         print(f"  {C.dim('Extracting...')}", end=" ", flush=True)
-        with zipfile.ZipFile(tmp_path, 'r') as zf:
-            names = [n for n in zf.namelist() if not n.startswith('__MACOSX')]
-            top_items = set(n.split('/')[0] for n in names if n)
+        with tempfile.TemporaryDirectory(prefix="frames-assets-") as stage_dir:
+            stage_path = Path(stage_dir)
+            with zipfile.ZipFile(tmp_path, "r") as zf:
+                _extract_zip_to_dir(zf, stage_path)
 
-            if len(top_items) == 1:
-                prefix = top_items.pop() + '/'
-                for member in zf.infolist():
-                    if member.filename.startswith('__MACOSX'):
-                        continue
-                    if member.filename.startswith(prefix) and len(member.filename) > len(prefix):
-                        member.filename = member.filename[len(prefix):]
-                        zf.extract(member, dest_dir)
-            else:
-                for member in zf.infolist():
-                    if not member.filename.startswith('__MACOSX'):
-                        zf.extract(member, dest_dir)
-
-        # Validate — NewFrames.json must exist
-        json_path = dest_dir / "NewFrames.json"
-        if not json_path.exists():
-            found = list(dest_dir.rglob("NewFrames.json"))
-            if found:
-                src = found[0].parent
-                for item in src.iterdir():
-                    shutil.move(str(item), str(dest_dir / item.name))
-            else:
+            source_root = _find_assets_root(stage_path)
+            if source_root is None:
                 print(C.red('failed'))
                 print(f"  {C.red('Error')}: NewFrames.json not found in archive.", file=sys.stderr)
                 return False
+
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            for item in source_root.iterdir():
+                target = dest_dir / item.name
+                if item.is_dir():
+                    shutil.copytree(item, target, dirs_exist_ok=True)
+                else:
+                    shutil.copy2(item, target)
 
         pngs = list(dest_dir.glob("*.png"))
         print(C.green('done!'))
@@ -152,6 +259,10 @@ def download_assets(dest_dir):
         return False
     except zipfile.BadZipFile:
         print(f"\n  {C.red('Error')}: Downloaded file is corrupted.", file=sys.stderr)
+        return False
+    except ValueError as e:
+        print(C.red("failed"))
+        print(f"  {C.red('Error')}: {e}", file=sys.stderr)
         return False
     except OSError as e:
         print(f"\n  {C.red('Error')}: {e}", file=sys.stderr)
@@ -165,7 +276,7 @@ def download_assets(dest_dir):
 def guided_setup(reason=None):
     """Interactive guided setup — download and install Apple Frames 4 assets.
     Returns True on success, False if cancelled or failed."""
-    default_path = DEFAULT_ASSETS
+    default_path = get_default_assets_dir()
     short_default = str(default_path).replace(str(HOME), "~")
 
     print()
@@ -372,7 +483,7 @@ def load_json(assets_dir):
         print(f"{C.red('Error')}: NewFrames.json not found at {json_path}", file=sys.stderr)
         sys.exit(1)
     try:
-        with open(json_path) as f:
+        with open(json_path, encoding="utf-8") as f:
             return json.load(f)
     except json.JSONDecodeError as e:
         print(f"{C.red('Error')}: Invalid JSON in {json_path}: {e}", file=sys.stderr)
@@ -418,7 +529,7 @@ def load_config():
     """Load user config from ~/.config/frames/config.json."""
     if CONFIG_FILE.exists():
         try:
-            with open(CONFIG_FILE) as f:
+            with open(CONFIG_FILE, encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, IOError):
             pass
@@ -427,10 +538,14 @@ def load_config():
 def save_config(config):
     """Save user config."""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CONFIG_FILE, "w") as f:
-        json.dump(config, f, indent=2)
+    with tempfile.NamedTemporaryFile("w", dir=CONFIG_DIR, delete=False, encoding="utf-8") as tmp:
+        json.dump(config, tmp, indent=2)
+        tmp.write("\n")
+        tmp_path = Path(tmp.name)
+    os.replace(tmp_path, CONFIG_FILE)
 
-def get_color(model_name, color_arg):
+
+def get_color(model_name, color_arg, user_defaults=None):
     """Resolve frame color for a device. Checks: CLI arg > user config > first in list."""
     if model_name not in FRAME_COLORS:
         return None
@@ -454,8 +569,7 @@ def get_color(model_name, color_arg):
         print(f"{C.yellow('Warning')}: Color '{color_arg}' not found for {model_name}. Using default.", file=sys.stderr)
 
     # Check user config for saved default
-    cfg = load_config()
-    user_defaults = cfg.get("default_colors", {})
+    user_defaults = user_defaults or {}
     # Strip orientation for lookup (user sets "iPhone 17 Pro" not "iPhone 17 Pro Portrait")
     base = model_name.replace(" Portrait", "").replace(" Landscape", "")
     if base in user_defaults:
@@ -464,6 +578,12 @@ def get_color(model_name, color_arg):
             return saved
 
     return colors[0]  # Fallback = first color
+
+
+@lru_cache(maxsize=512)
+def _load_rgba_asset_cached(path_str):
+    with Image.open(path_str) as image:
+        return image.convert("RGBA")
 
 def load_frame(assets_dir, model_name, color):
     """Load the frame PNG for a device + color."""
@@ -478,13 +598,13 @@ def load_frame(assets_dir, model_name, color):
     if not frame_path.exists():
         return None, str(frame_path)
 
-    return Image.open(frame_path).convert("RGBA"), str(frame_path)
+    return _load_rgba_asset_cached(str(frame_path)).copy(), str(frame_path)
 
 def load_mask(assets_dir, model_name):
     """Load mask PNG if it exists."""
     mask_path = assets_dir / f"{model_name}_mask.png"
     if mask_path.exists():
-        return Image.open(mask_path).convert("RGBA")
+        return _load_rgba_asset_cached(str(mask_path)).copy()
     return None
 
 def apply_mask(screenshot, mask):
@@ -577,34 +697,40 @@ def guard_image_size(width, height, source):
             file=sys.stderr,
         )
 
-def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_device=None, verbose=False):
+
+def build_device_name_index(device_dict):
+    """Build a name→device-entry lookup for exact --device matches."""
+    index = {}
+    for key, val in device_dict.items():
+        if key == "variants":
+            continue
+        sub_entries = list(val.get("overlap", {}).values()) or [val]
+        for entry in sub_entries:
+            index[entry["name"]] = entry
+    for name, entry in device_dict.get("variants", {}).items():
+        index[name] = entry
+    return index
+
+
+def frame_screenshot(
+    img_path,
+    assets_dir,
+    device_dict,
+    color_arg=None,
+    force_device=None,
+    verbose=False,
+    user_defaults=None,
+    device_index=None,
+):
     """Frame a single screenshot. Returns (framed_image, device_info_dict) or raises."""
-    img = Image.open(img_path)
-    w, h = img.size
-    guard_image_size(w, h, img_path)
-    img = img.convert("RGBA")
+    with Image.open(img_path) as opened:
+        w, h = opened.size
+        guard_image_size(w, h, img_path)
+        img = opened.convert("RGBA")
 
     # 1. Device detection
     if force_device:
-        # Find the device in JSON by name (including inside overlap sub-entries)
-        entry = None
-        for key, val in device_dict.items():
-            if key == "variants":
-                continue
-            if val.get("name") == force_device:
-                entry = val
-                break
-            if "overlap" in val:
-                for hval in val["overlap"].values():
-                    if hval.get("name") == force_device:
-                        entry = hval
-                        break
-                if entry:
-                    break
-        if not entry:
-            # Check variants
-            if "variants" in device_dict and force_device in device_dict["variants"]:
-                entry = device_dict["variants"][force_device]
+        entry = (device_index or build_device_name_index(device_dict)).get(force_device)
         if not entry:
             raise ValueError(f"Device '{force_device}' not found in dictionary")
         model_name = entry["name"]
@@ -623,7 +749,7 @@ def frame_screenshot(img_path, assets_dir, device_dict, color_arg=None, force_de
 
     # 3. Color
     has_colors = entry.get("colors") == "yes"
-    color = get_color(model_name, color_arg) if has_colors else None
+    color = get_color(model_name, color_arg, user_defaults=user_defaults) if has_colors else None
 
     # 4. Resize (for More Space resolutions)
     resize_width = entry.get("resizeWidth")
@@ -675,6 +801,9 @@ def cmd_frame(args):
     """Frame one or more screenshots."""
     assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
     device_dict = load_json(assets_dir)
+    config = load_config()
+    user_defaults = config.get("default_colors", {})
+    device_index = build_device_name_index(device_dict)
 
     if not args.files:
         print(f"{C.red('Error')}: No input files specified.", file=sys.stderr)
@@ -694,6 +823,12 @@ def cmd_frame(args):
         print(f"{C.red('Error')}: No images found in the specified paths.", file=sys.stderr)
         sys.exit(1)
 
+    try:
+        subfolder = get_subfolder_setting(args, config=config)
+    except ValueError as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
+
     framed = []
     infos = []
 
@@ -707,7 +842,9 @@ def cmd_frame(args):
                 p, assets_dir, device_dict,
                 color_arg=args.color,
                 force_device=args.device,
-                verbose=args.verbose
+                verbose=args.verbose,
+                user_defaults=user_defaults,
+                device_index=device_index,
             )
             framed.append((result, p, info))
             infos.append(info)
@@ -716,7 +853,14 @@ def cmd_frame(args):
                 color_str = f" ({C.rgb(235, 125, 40, info['color'])})" if info["color"] else ""
                 print(f"{C.green(info['device'])}{color_str}")
 
-        except (ValueError, FileNotFoundError, OSError, UnidentifiedImageError) as e:
+        except (
+            ValueError,
+            FileNotFoundError,
+            OSError,
+            UnidentifiedImageError,
+            Image.DecompressionBombWarning,
+            Image.DecompressionBombError,
+        ) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
             continue
 
@@ -736,8 +880,8 @@ def cmd_frame(args):
 
         if args.output:
             out_dir = Path(args.output)
-        elif get_subfolder_setting(args):
-            out_dir = framed[0][1].parent / get_subfolder_setting(args)
+        elif subfolder:
+            out_dir = framed[0][1].parent / subfolder
         else:
             out_dir = framed[0][1].parent
         try:
@@ -816,8 +960,8 @@ def cmd_frame(args):
         for result_img, src_path, info in framed:
             if args.output:
                 out_dir = Path(args.output)
-            elif get_subfolder_setting(args):
-                out_dir = src_path.parent / get_subfolder_setting(args)
+            elif subfolder:
+                out_dir = src_path.parent / subfolder
             else:
                 out_dir = src_path.parent
             try:
@@ -924,9 +1068,11 @@ def cmd_list_colors(args):
 def _build_device_list():
     """Build deduplicated device→colors list (no portrait/landscape dupes)."""
     devices = []
+    seen = set()
     for name, colors in FRAME_COLORS.items():
         base = name.replace(" Portrait", "").replace(" Landscape", "")
-        if not any(d[0] == base for d in devices):
+        if base not in seen:
+            seen.add(base)
             devices.append((base, list(colors)))
     return devices
 
@@ -1114,9 +1260,15 @@ def cmd_setup(args):
         print(f"  {C.dim('The path should point to the folder containing NewFrames.json and frame PNGs.')}", file=sys.stderr)
         sys.exit(1)
 
+    ok, ver = check_assets_version(assets_path)
+    if not ok:
+        reason = "missing or invalid Apple Frames 4 assets" if ver is None else f"outdated asset version {ver}"
+        print(f"{C.red('Error')}: {reason} in {assets_path}", file=sys.stderr)
+        sys.exit(1)
+
     # Count assets
     pngs = list(assets_path.glob("*.png"))
-    with open(json_file) as f:
+    with open(json_file, encoding="utf-8") as f:
         device_dict = json.load(f)
     device_count = len([k for k in device_dict if k != "variants"])
 
@@ -1142,13 +1294,12 @@ def cmd_setup(args):
 
 def _gather_image_paths(paths):
     """Expand a mix of files and directories into image file paths."""
-    IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".tiff", ".webp"}
     result = []
     for p in paths:
         p = Path(p)
         if p.is_dir():
             for f in sorted(p.iterdir()):
-                if f.suffix.lower() in IMAGE_EXTS and not f.name.startswith("."):
+                if f.suffix.lower() in VALID_IMAGE_EXTS and not f.name.startswith("."):
                     result.append(f)
         elif p.is_file():
             result.append(p)
@@ -1158,12 +1309,12 @@ def _gather_image_paths(paths):
 
 def _info_for_image(p, device_dict):
     """Analyze a single image. Returns an info dict."""
-    img = Image.open(p)
-    w, h = img.size
-    guard_image_size(w, h, p)
+    with Image.open(p) as img:
+        w, h = img.size
+        guard_image_size(w, h, p)
+        entry, model_name = detect_device(img, device_dict)
     info = {"file": str(p), "name": p.name, "width": w, "height": h}
 
-    entry, model_name = detect_device(img, device_dict)
     if not entry:
         info["device"] = None
         info["error"] = f"Unknown device (width {w}px)"
@@ -1205,7 +1356,14 @@ def cmd_info(args):
         try:
             info = _info_for_image(p, device_dict)
             results.append(info)
-        except Exception as e:
+        except (
+            ValueError,
+            FileNotFoundError,
+            OSError,
+            UnidentifiedImageError,
+            Image.DecompressionBombWarning,
+            Image.DecompressionBombError,
+        ) as e:
             results.append({"file": str(p), "name": p.name, "error": str(e)})
 
     if args.json:
@@ -1270,12 +1428,20 @@ def cmd_info(args):
 
 def copy_to_clipboard(path, announce=True):
     """Copy image to macOS clipboard."""
+    if sys.platform != "darwin":
+        print(f"  {C.yellow('Warning')}: Clipboard copy is only supported on macOS", file=sys.stderr)
+        return
     try:
-        safe_path = str(path).replace("\\", "\\\\").replace('"', '\\"')
+        script = (
+            'set the clipboard to '
+            '(read (POSIX file (system attribute "FRAMES_CLIPBOARD_PATH")) as «class PNGf»)'
+        )
+        env = os.environ.copy()
+        env["FRAMES_CLIPBOARD_PATH"] = str(path)
         subprocess.run([
             "osascript", "-e",
-            f'set the clipboard to (read (POSIX file "{safe_path}") as «class PNGf»)'
-        ], check=True, capture_output=True)
+            script,
+        ], check=True, capture_output=True, env=env)
         if announce:
             print(f"  {C.green('Copied to clipboard')}", file=sys.stderr)
     except (subprocess.CalledProcessError, FileNotFoundError):
