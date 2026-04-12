@@ -76,6 +76,17 @@ def _get_config_assets_dir():
     return None
 
 
+def read_config_file():
+    """Read config file without swallowing errors."""
+    if not CONFIG_FILE.exists():
+        return None, None
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            return json.load(f), None
+    except (json.JSONDecodeError, OSError) as e:
+        return None, str(e)
+
+
 def validate_subfolder_name(name):
     """Allow only a single relative directory component for --subfolder."""
     candidate = str(name).strip()
@@ -90,21 +101,27 @@ def validate_subfolder_name(name):
 
     return pure.parts[0]
 
-def get_assets_dir(args_assets=None):
-    """Resolve assets directory: CLI flag > env var > config file > default."""
+
+def resolve_assets_dir(args_assets=None):
+    """Resolve assets directory and report which source won."""
     if args_assets is not None:
-        return _expand_path(args_assets)
+        return _expand_path(args_assets), "--assets"
     env = os.environ.get("FRAMES_ASSETS")
     if env:
-        return _expand_path(env)
+        return _expand_path(env), "FRAMES_ASSETS"
     configured = _get_config_assets_dir()
     if configured is not None:
-        return configured
+        return configured, "config"
     if check_assets_version(DEFAULT_ASSETS)[0]:
-        return DEFAULT_ASSETS
+        return DEFAULT_ASSETS, "default"
     if check_assets_version(LEGACY_ASSETS)[0]:
-        return LEGACY_ASSETS
-    return DEFAULT_ASSETS
+        return LEGACY_ASSETS, "legacy"
+    return DEFAULT_ASSETS, "default"
+
+
+def get_assets_dir(args_assets=None):
+    """Resolve assets directory: CLI flag > env var > config file > default."""
+    return resolve_assets_dir(args_assets)[0]
 
 def get_subfolder_setting(args, config=None):
     """Get subfolder name if enabled. Returns folder name string or None.
@@ -1447,13 +1464,129 @@ def copy_to_clipboard(path, announce=True):
     except (subprocess.CalledProcessError, FileNotFoundError):
         print(f"  {C.yellow('Warning')}: Could not copy to clipboard", file=sys.stderr)
 
+
+def cmd_doctor(args):
+    """Diagnose common asset and config problems."""
+    assets_dir, assets_source = resolve_assets_dir(getattr(args, "assets", None))
+    config, config_error = read_config_file()
+    ok, ver = check_assets_version(assets_dir)
+
+    json_path = assets_dir / "NewFrames.json"
+    png_count = len(list(assets_dir.glob("*.png"))) if assets_dir.exists() else 0
+    issues = []
+    notes = []
+
+    if config_error:
+        issues.append(f"Config file is unreadable: {config_error}")
+    elif config is None:
+        notes.append("Config file not found. This is fine if you use defaults or FRAMES_ASSETS.")
+
+    if not assets_dir.exists():
+        issues.append(f"Assets directory does not exist: {assets_dir}")
+    elif not json_path.exists():
+        issues.append(f"NewFrames.json is missing from assets directory: {assets_dir}")
+    elif not ok:
+        if ver is None:
+            issues.append(f"Assets at {assets_dir} do not look like Apple Frames 4.")
+        else:
+            issues.append(f"Assets are outdated at {assets_dir} (version {ver}).")
+
+    if assets_dir.exists() and ok and png_count == 0:
+        issues.append(f"No frame PNGs were found in {assets_dir}.")
+
+    bad_default_colors = []
+    if config and isinstance(config.get("default_colors"), dict):
+        for device, color in config["default_colors"].items():
+            matches = [
+                name for name, colors in FRAME_COLORS.items()
+                if name.replace(" Portrait", "").replace(" Landscape", "") == device
+            ]
+            if matches and all(color not in FRAME_COLORS[name] for name in matches):
+                bad_default_colors.append(f"{device}: {color}")
+    if bad_default_colors:
+        issues.append("Some saved default colors no longer match supported device colors.")
+
+    if assets_source == "FRAMES_ASSETS":
+        notes.append("Using FRAMES_ASSETS from the environment.")
+    elif assets_source == "--assets":
+        notes.append("Using assets directory from the CLI flag.")
+    elif assets_source == "legacy":
+        notes.append("Using the legacy Shortcuts/iCloud assets directory.")
+
+    next_steps = []
+    if any("Config file is unreadable" in issue for issue in issues):
+        next_steps.append(f"Fix or remove {CONFIG_FILE}.")
+    if any("Assets" in issue or "NewFrames.json" in issue or "frame PNGs" in issue for issue in issues):
+        next_steps.append("Run `frames setup` to re-download or re-point your assets.")
+    if bad_default_colors:
+        next_steps.append("Run `frames colors` to save fresh defaults, or remove stale entries from config.")
+    if not next_steps:
+        next_steps.append("No action needed.")
+
+    result = {
+        "ok": not issues,
+        "assets_path": str(assets_dir),
+        "assets_source": assets_source,
+        "assets_version": ver,
+        "frame_pngs": png_count,
+        "config_path": str(CONFIG_FILE),
+        "config_present": CONFIG_FILE.exists(),
+        "issues": issues,
+        "notes": notes,
+        "next_steps": next_steps,
+    }
+    if bad_default_colors:
+        result["bad_default_colors"] = bad_default_colors
+
+    if args.json:
+        print(json.dumps(result, indent=2))
+        return
+
+    print()
+    status = C.green("OK") if result["ok"] else C.red("Needs attention")
+    print(f"  {C.bold('Frames Doctor')} {status}")
+    print(f"  {C.bold('Assets:')} {assets_dir}")
+    print(f"  {C.bold('Source:')} {assets_source}")
+    version_text = f"v{ver}" if ver is not None else "unknown"
+    print(f"  {C.bold('Version:')} {version_text}")
+    print(f"  {C.bold('Frame PNGs:')} {png_count}")
+    print(f"  {C.bold('Config:')} {CONFIG_FILE}")
+
+    if notes:
+        print()
+        print(f"  {C.bold('Notes')}")
+        for note in notes:
+            print(f"    {C.dim('-')} {note}")
+
+    if issues:
+        print()
+        print(f"  {C.bold('Issues')}")
+        for issue in issues:
+            print(f"    {C.red('•')} {issue}")
+
+    print()
+    print(f"  {C.bold('Next steps')}")
+    for step in next_steps:
+        print(f"    {C.cyan('•')} {step}")
+    print()
+
 # ── Argument Parsing ─────────────────────────────────────────────────────────
 
 def build_parser():
+    epilog = (
+        "Default framing flags also work without the `frame` subcommand.\n"
+        "Examples:\n"
+        "  frames -m shot1.png shot2.png\n"
+        "  frames -m --no-scale shot1.png shot2.png\n"
+        "  frames frame --help\n"
+        "  frames doctor"
+    )
     p = argparse.ArgumentParser(
         prog="frames",
         description="Frame screenshots with Apple device bezels",
         add_help=True,
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--version", action="version", version=f"frames v{VERSION}")
     p.add_argument("--no-color", action="store_true", help="Disable colored output")
@@ -1498,6 +1631,9 @@ def build_parser():
     setup_p.add_argument("--subfolder", action="store_true", default=None, help="Save framed images to /framed/ subfolder")
     setup_p.add_argument("--no-subfolder", action="store_false", dest="subfolder", help="Save framed images next to originals (default)")
 
+    # Doctor command
+    sub.add_parser("doctor", help="Diagnose asset and config problems")
+
     return p
 
 def main():
@@ -1505,7 +1641,7 @@ def main():
 
     # Pre-process argv: if the first non-flag arg isn't a known subcommand,
     # assume it's a file and inject "frame" as the subcommand
-    known_cmds = {"frame", "list", "list-colors", "colors", "info", "setup", "-h", "--help", "--version"}
+    known_cmds = {"frame", "list", "list-colors", "colors", "info", "setup", "doctor", "-h", "--help", "--version"}
     argv = sys.argv[1:]
     if argv:
         global_flags = {"-h", "--help", "--version", "--no-color", "--json", "-v", "--verbose"}
@@ -1551,7 +1687,7 @@ def main():
         args.json = True
 
     # Resolve assets directory (setup doesn't need it)
-    if args.cmd != "setup":
+    if args.cmd not in ("setup", "doctor"):
         args.assets = str(get_assets_dir(args.assets))
 
     # Route commands
@@ -1562,11 +1698,12 @@ def main():
         "colors": cmd_colors,
         "info": cmd_info,
         "setup": cmd_setup,
+        "doctor": cmd_doctor,
     }
     handler = cmds.get(args.cmd)
     if handler:
         # Check assets exist and are v4+ (except for setup, colors, list-colors)
-        if args.cmd not in ("setup", "colors", "list-colors"):
+        if args.cmd not in ("setup", "colors", "list-colors", "doctor"):
             ok, ver = check_assets_version(Path(args.assets))
             if not ok:
                 if not sys.stdin.isatty() or args.json:
