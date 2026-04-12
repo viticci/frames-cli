@@ -1,176 +1,167 @@
 ---
 name: frames-cli
-description: Frame screenshots with Apple device bezels using the `frames` CLI. Use this skill when the user asks to frame screenshots, add device frames to images, create framed mockups, or batch-process screenshot directories. Triggers on "frame this screenshot", "add bezels", "frame these images", "device mockup", or any request involving putting screenshots inside Apple device frames via the command line.
+description: Frame screenshots with the `frames` CLI. Use this skill when the user asks to add Apple device bezels, frame screenshots, create device mockups, inspect screenshot/device matches, or batch-process screenshot folders with the command line.
 ---
 
 # Apple Frames CLI
 
-`frames` is a Python CLI that frames device screenshots with Apple product bezels. It replicates the Apple Frames shortcut functionality for terminal and AI agent workflows.
+`frames` 1.2.4 is a single-file Python CLI that applies Apple device bezels to screenshots, auto-detects devices from screenshot dimensions, applies masks when needed, and can merge multiple framed results into one composite image.
+
+## What Agents Should Know
+
+- `frames` is the default command. `frames screenshot.png` and `frames frame screenshot.png` are equivalent.
+- Use `frames --json` for automation. JSON stays valid even with `--copy`; clipboard status messages go to `stderr`.
+- Device support comes from the installed asset bundle, not hardcoded names in this skill. Use `frames list` and `frames list-colors` as the source of truth when exact names matter.
+- On macOS, the default asset location is the Apple Frames shortcut folder in iCloud Drive. That avoids downloading a second copy when the user already has the shortcut assets installed.
 
 ## Quick Reference
 
 ```bash
-# Frame a single screenshot (auto-detect device, save as name_framed.png)
+# Frame one screenshot
 frames screenshot.png
 
-# Frame all PNGs in a directory
-frames /path/to/screenshots/*.png
-
-# Frame all images in a folder (expands directory to all image files)
+# Frame every top-level image in a folder
 frames ~/Screenshots/
 
-# Frame with a specific color
+# Pick a specific color or randomize colors
 frames -c "Cosmic Orange" screenshot.png
-
-# Frame with random colors
 frames -c random *.png
 
-# Frame and merge side by side (proportional scaling, bottom-aligned)
-frames -m screenshot1.png screenshot2.png
+# Force an exact frame instead of auto-resolving the newest variant
+frames -d "iPhone 15 Pro Portrait" screenshot.png
 
-# Merge without proportional scaling (center-aligned, native sizes)
-frames -m --no-scale screenshot1.png screenshot2.png
+# Merge framed outputs side by side
+frames -m shot1.png shot2.png
 
-# Frame, merge with custom spacing, save to specific dir
-frames -m -s 80 -o /output/dir/ *.png
+# Merge without proportional physical scaling
+frames -m --no-scale shot1.png shot2.png
 
-# Merge in batches of 3 (15 files → 5 merged images)
+# Batch merge sequential groups
 frames -b 3 *.png
 
-# Batch merge with custom spacing and output directory
-frames -b 4 -s 80 -o /output/ *.png
+# Save to a separate output directory
+frames -o ~/Framed *.png
 
-# Frame and copy to clipboard (macOS)
-frames --copy screenshot.png
+# Save to a subfolder next to originals
+frames -f *.png
+frames --subfolder mockups *.png
 
-# Force a specific device frame (skips variant auto-resolution)
-frames -d "iPhone 17 Pro Portrait" screenshot.png
-
-# Show device info without framing
+# Inspect matches without framing
 frames info screenshot.png
+frames --json info ~/Screenshots/
 
-# Scan a folder for device matches
-frames info ~/Screenshots/
-
-# JSON output (for piping to other tools)
-frames --json screenshot.png
-
-# List all supported devices
+# Discover supported devices and colors
 frames list
-
-# Show available colors for a device
 frames list-colors "17 Pro"
 
-# Browse/set default colors (interactive TUI)
+# Manage default colors
 frames colors
 
-# Save to /framed/ subfolder
-frames -f screenshot.png
+# Diagnose asset/config problems
+frames doctor
 
-# Save to custom subfolder
-frames --subfolder mockups screenshot.png
-
-# Download + configure assets (interactive)
+# Download or re-point assets
 frames setup
-
-# Or point to existing assets folder
 frames setup /path/to/Frames
-
-# Verbose output
-frames -v screenshot.png
 ```
 
-## Global Flags
+## Current Feature Surface
 
-| Flag | Description |
-|------|-------------|
-| `--json` | Machine-readable JSON output (for AI agents) |
-| `--no-color` | Disable ANSI colors (also respects `NO_COLOR` env var) |
-| `-v, --verbose` | Verbose output (variant resolution, resize, mask info) |
-| `--assets PATH` | Override assets directory |
-| `--version` | Print version and exit |
+- Auto-detect devices from screenshot width, with height-based overlap disambiguation where needed.
+- Resolve width-sharing devices to the newest default frame automatically. Pass `--device` to skip variant resolution.
+- Apply frame colors by exact name, partial numeric index, or `random`.
+- Apply masks when the asset entry requires clipping.
+- Merge multiple framed outputs with physical-size normalization by default.
+- Use `--no-scale` to disable proportional scaling and keep native framed sizes when merging.
+- Use `--batch N` to merge sequential groups. `--batch` implies merge and `N` must be at least `2`.
+- Save next to originals, into `--output`, or into a validated single-name subfolder via `-f` or `--subfolder`.
+- Copy a single output to the macOS clipboard with `--copy`.
+- Inspect screenshots and folders with `info`.
+- Diagnose assets and config with `doctor`.
+- Save per-device default colors with `colors`.
 
-## Default Behavior
+## Command Notes
 
-- **Output**: `originalname_framed.png` in the same directory as the source file
-- **Device detection**: Automatic from screenshot pixel width (+ height for overlap disambiguation)
-- **Color**: First color in the device's color array, overridable via `frames colors` TUI or config
-- **Variant resolution**: Newest device frame is default when multiple devices share a resolution; skipped when `--device` is explicitly set
-- **Proportional scaling**: When merging different devices, frames are scaled to real-world physical proportions and bottom-aligned. Use `--no-scale` to disable.
-- **Directory input**: Passing a directory expands to all image files inside it (png, jpg, jpeg, heic, tiff, webp)
+- Global flags:
+  - `--json` for machine-readable output
+  - `--no-color` to disable ANSI color
+  - `--assets PATH` to override asset discovery
+  - `-v` / `--verbose` for variant, resize, and mask details
+- `frames colors` is interactive in a real terminal. If stdin is not a TTY, or `curses` is unavailable, it falls back to a plain printed color list.
+- `frames list-colors` does partial device-name matching. `frames list-colors "17 Pro"` is valid.
+- Directory inputs are expanded one level deep only. The CLI scans top-level image files inside the directory; it is not recursive.
+- Supported input image extensions are `.png`, `.jpg`, `.jpeg`, `.heic`, `.tiff`, and `.webp`.
+- Images larger than `20,000px` on either side trigger a warning. Images larger than `50,000px` are rejected.
+- `--subfolder` only accepts a single directory name, not a path like `../out` or `foo/bar`.
 
-## Configuration
+## JSON Output Behavior
 
-Config file: `~/.config/frames/config.json`
+- `frames --json screenshot.png` returns one framed-image object with fields such as `source`, `device`, `color`, `dimensions`, `frame_size`, `resized`, `masked`, `physicalHeight`, and `output`.
+- `frames --json *.png` returns `{ "frames": [...] }` for multiple individual outputs.
+- `frames --json -m ...` returns a merged result with `merged`, `count`, and `frames`.
+- `frames --json -b N ...` returns `batches`, `batch_size`, `total`, and `frames`.
+- When proportional merge scaling is applied, per-frame `scale_factor` values are included in the JSON output.
+- `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`.
+- `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
 
-Set up via `frames setup` (downloads assets interactively) or `frames setup /path/to/assets`. Re-run `frames setup` to re-download if assets get corrupted. Keys:
+## Assets and Config
 
-- `assets_path` — path to the Frames assets folder
-- `default_colors` — per-device default color choices (set via `frames colors` TUI)
-- `use_subfolder` — `true` for "framed", or a custom string like "mockups"
+Config file:
 
-Environment variables:
-- `FRAMES_ASSETS` — override assets directory (takes precedence over config, lower than `--assets` flag)
-- `NO_COLOR` — disable ANSI color output
-
-## For AI Agent Pipelines
-
-Use `--json` for machine-readable output:
-
-```bash
-# Get device info as JSON
-frames --json info screenshot.png
-
-# Frame and get output path as JSON
-frames --json screenshot.png
-
-# Frame, copy to clipboard, and get valid JSON (clipboard message goes to stderr)
-frames --json --copy screenshot.png
+```text
+~/.config/frames/config.json
 ```
 
-The JSON output includes: source path, detected device, color used, dimensions, and output path. The `--copy` flag's success/failure message prints to stderr so it never corrupts JSON output.
+Config keys:
 
-## Batch Processing Pattern
+- `assets_path`: explicit asset folder path
+- `default_colors`: saved default frame colors by base device name
+- `use_subfolder`: `true` for `framed`, or a custom folder name string
 
-Point the CLI at a directory of screenshots:
+Asset resolution order:
 
-```bash
-# Frame everything, output to a separate directory
-frames -o ~/framed/ ~/screenshots/*.png
+1. `--assets`
+2. `FRAMES_ASSETS`
+3. `assets_path` from config
+4. macOS default: `~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames`
+5. macOS fallback if valid: `~/Library/Application Support/frames/assets`
+6. On non-macOS platforms, the standard per-platform app-data directory is the default
 
-# Frame and merge all into one image
-frames -m -o ~/framed/ ~/screenshots/*.png
+Setup behavior:
 
-# Random colors for variety
-frames -c random -o ~/framed/ ~/screenshots/*.png
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/Frames40.zip`.
+- `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
+- The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
+- `frames setup --subfolder` and `frames setup --no-subfolder` update the default save behavior in config.
+- `frames doctor` is the first command to run when assets were moved, edited, or corrupted.
 
-# Merge in sequential batches of N (e.g. 15 files → 5 merged images)
-frames -b 3 ~/screenshots/*.png
+## Current Supported Device Families
 
-# Batch merge with random colors
-frames -b 3 -c random *.png
-```
+The current v4 asset bundle used by `frames` 1.2.4 includes these primary families:
 
-`--batch` / `-b` implies `--merge` — no need to pass both. Batch size must be >= 2. If the total isn't evenly divisible, the last batch contains the remainder. Output files are named `merged_1_framed.png`, `merged_2_framed.png`, etc. JSON output includes a `batches` array with per-batch counts and paths.
+- iPhone: iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
+- iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
+- Mac: MacBook Neo, MacBook Pro 13, MacBook Air 2020, MacBook Air M5 13, MacBook Air M5 15, MacBook Pro M5 14, MacBook Pro M5 16, iMac M4, Studio Display, Studio Display XDR
+- Watch: Watch Series 7 41, Watch Series 7 45, Watch Series 11 42, Watch Series 11 46, Watch Ultra 2024, Watch Ultra 3
 
-## Error Handling
+Current default variant resolution favors the newest matching frame for shared screenshot sizes:
 
-- Corrupt/non-image files are skipped with a clean error; valid files in the same batch still process
-- Corrupted assets JSON prints a targeted error instead of a traceback
-- Read-only output directories are caught with a clear message
-- Images exceeding 50,000px in either dimension are refused; images over 20,000px trigger a warning
-- Missing Pillow dependency prints an install instruction and exits cleanly
+- `iPhone 17 Portrait` resolves to `iPhone 17 Pro Portrait`
+- `iPhone 17 Landscape` resolves to `iPhone 17 Pro Landscape`
+- `iPhone 17 Pro Max` shares sizes with `iPhone 16 Pro Max`
+- `iPhone 16` shares sizes with `iPhone 15 Pro`
+- `iPhone 16 Plus` shares sizes with `iPhone 15 Pro Max`
+- `MacBook Pro M5` shares sizes with `MacBook Pro 2021`
+- `MacBook Air M5 13` shares sizes with `MacBook Air 2022`
+- `Studio Display` shares sizes with `Studio Display XDR`
+- `Watch Series 11` shares sizes with `Watch Series 10`
 
-## Assets
+If an exact older variant is required, pass `--device` with the exact frame name instead of relying on auto-detection.
 
-On first run, the CLI auto-detects missing or outdated assets and offers to download Apple Frames 4 (~40 MB) from `cdn.macstories.net`. Run `frames setup` to download interactively, or re-download if assets get corrupted.
+## Recommended Agent Workflow
 
-Default location: `~/Library/Mobile Documents/iCloud~is~workflow~my~workflows/Documents/Frames/`
-
-The folder contains `NewFrames.json` (device dictionary), `version.txt`, and hundreds of frame/mask PNGs.
-
-Override with `--assets /path/to/assets/`, `FRAMES_ASSETS` env var, or `frames setup /path`.
-
-## Supported Devices (v1.1)
-
-iPhone 17 family (17, 17 Pro, 17 Pro Max), iPhone Air, iPhone 16 family (16, 16 Plus, 16 Pro, 16 Pro Max), iPhone 12-13 family, iPhone 8/SE, iPad Pro (2018-2024), iPad Air, iPad mini, MacBook Neo, MacBook Pro M5 14"/16", MacBook Pro 2021, MacBook Air M5 13"/15", MacBook Air 2022, iMac M4 (7 colors), Studio Display, Studio Display XDR, Apple Watch Series 10-11, Apple Watch Ultra 2024, Apple Watch Ultra 3.
+1. Run `frames --json info ...` first when you do not control the screenshot source.
+2. If the user asks for a specific device or color, confirm the exact names with `frames list` or `frames list-colors`.
+3. Use `frames doctor` before changing config or re-downloading assets.
+4. Use `--device` only when the user wants an exact frame, older variant, or a non-default shared-size match.
+5. Use `--no-scale` only when the user explicitly wants native framed sizes instead of physically proportionate merges.

@@ -31,7 +31,7 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.2.3"
+VERSION = "1.2.4"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
