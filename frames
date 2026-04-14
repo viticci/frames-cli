@@ -15,6 +15,7 @@ import json
 import os
 import random
 import shutil
+import ssl
 import stat
 import subprocess
 import sys
@@ -239,6 +240,37 @@ def _find_assets_root(path):
         return found[0].parent
     return None
 
+def _is_ssl_download_error(exc):
+    reason = getattr(exc, "reason", exc)
+    if isinstance(reason, ssl.SSLError):
+        return True
+
+    text = str(reason).lower()
+    ssl_markers = (
+        "certificate verify failed",
+        "self-signed certificate",
+        "tlsv1 alert",
+        "ssl:",
+    )
+    return any(marker in text for marker in ssl_markers)
+
+def _download_with_urllib(tmp_path, reporthook):
+    import urllib.request
+
+    urllib.request.urlretrieve(ASSETS_URL, tmp_path, reporthook=reporthook)
+
+def _download_with_curl(tmp_path, curl_path=None):
+    curl_path = curl_path or shutil.which("curl")
+    if curl_path is None:
+        raise FileNotFoundError("curl is not installed")
+
+    result = subprocess.run(
+        [curl_path, "--location", "--fail", "--progress-bar", "--show-error", "-o", tmp_path, ASSETS_URL],
+        check=False,
+    )
+    if result.returncode != 0:
+        raise OSError(f"curl download failed with exit code {result.returncode}")
+
 def download_assets(dest_dir):
     """Download and extract Apple Frames 4 assets. Returns True on success."""
     import urllib.request, urllib.error, zipfile
@@ -258,8 +290,21 @@ def download_assets(dest_dir):
                 print(f"\r  Downloading [{C.rgb(232,114,42, bar)}] {pct}% of {mb:.0f} MB ", end="", flush=True)
 
         print(f"  {C.dim('Connecting to cdn.macstories.net...')}", flush=True)
-        urllib.request.urlretrieve(ASSETS_URL, tmp_path, reporthook=progress)
-        print()
+        try:
+            _download_with_urllib(tmp_path, progress)
+            print()
+        except urllib.error.URLError as e:
+            if not _is_ssl_download_error(e):
+                raise
+
+            curl_path = shutil.which("curl")
+            if curl_path is None:
+                raise
+
+            print()
+            print(f"  {C.dim('Python SSL verification failed; retrying with curl...')}", flush=True)
+            _download_with_curl(tmp_path, curl_path=curl_path)
+            print()
 
         print(f"  {C.dim('Extracting...')}", end=" ", flush=True)
         with tempfile.TemporaryDirectory(prefix="frames-assets-") as stage_dir:
