@@ -5,7 +5,7 @@ description: Frame screenshots with the `frames` CLI. Use this skill when the us
 
 # Apple Frames CLI
 
-`frames` 1.2.6 is a single-file Python CLI that applies Apple device bezels to screenshots, auto-detects devices from screenshot dimensions, applies masks when needed, and can merge multiple framed results into one composite image.
+`frames` 1.2.7 is a single-file Python CLI that applies Apple device bezels to screenshots, auto-detects devices from screenshot dimensions, applies masks when needed, and can merge multiple framed results into one composite image.
 
 ## What Agents Should Know
 
@@ -129,7 +129,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/Frames40.zip`.
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/AppleFrames40.zip`.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
 - `frames setup --subfolder` and `frames setup --no-subfolder` update the default save behavior in config.
@@ -137,7 +137,7 @@ Setup behavior:
 
 ## Current Supported Device Families
 
-The current v4 asset bundle used by `frames` 1.2.6 includes these primary families:
+The current v4 asset bundle used by `frames` 1.2.7 includes these primary families:
 
 - iPhone: iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
