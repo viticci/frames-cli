@@ -12,8 +12,10 @@ app data directories elsewhere.
 
 import argparse
 import json
+import math
 import os
 import random
+import re
 import shutil
 import ssl
 import stat
@@ -32,7 +34,7 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.2.8"
+VERSION = "1.3.0"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
@@ -42,6 +44,8 @@ ASSETS_MIN_VERSION = 4
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
 VALID_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".tiff", ".webp"}
+VALID_VIDEO_EXTS = {".mp4", ".mov", ".m4v"}
+MIN_FFMPEG_VERSION = (5, 1)
 
 
 def get_shortcuts_assets_dir(home=None):
@@ -566,9 +570,9 @@ def load_json(assets_dir):
         print(f"{C.red('Error')}: Invalid JSON in {json_path}: {e}", file=sys.stderr)
         sys.exit(1)
 
-def detect_device(img, device_dict):
-    """Detect device from screenshot dimensions using width + overlap height check."""
-    w, h = img.size
+def detect_device_size(width, height, device_dict):
+    """Detect device from dimensions using width + overlap height check."""
+    w, h = width, height
     width_key = str(w)
 
     if width_key not in device_dict:
@@ -586,6 +590,12 @@ def detect_device(img, device_dict):
 
     return entry, entry["name"]
 
+
+def detect_device(img, device_dict):
+    """Detect device from screenshot dimensions using width + overlap height check."""
+    return detect_device_size(*img.size, device_dict)
+
+
 def resolve_variant(model_name, device_dict):
     """Apply variant resolution — first item in variant array is the default."""
     if model_name not in FRAME_VARIANTS:
@@ -601,6 +611,34 @@ def resolve_variant(model_name, device_dict):
             return variant_data, variant_data["name"]
 
     return None, model_name
+
+
+def resolve_device_entry(width, height, device_dict, force_device=None, device_index=None, verbose=False):
+    """Resolve dimensions or an explicit device into a final frame entry."""
+    if force_device:
+        entry = (device_index or build_device_name_index(device_dict)).get(force_device)
+        if not entry:
+            raise ValueError(f"Device '{force_device}' not found in dictionary")
+        return entry, entry["name"], entry["name"], False
+
+    entry, primary_name = detect_device_size(width, height, device_dict)
+    if not entry:
+        raise ValueError(
+            f"Unknown device for {width}x{height} input. Use 'frames list' to see supported devices."
+        )
+
+    model_name = primary_name
+    variant_data, resolved_name = resolve_variant(model_name, device_dict)
+    is_variant = False
+    if variant_data:
+        entry = variant_data
+        model_name = resolved_name
+        is_variant = True
+        if verbose:
+            print(f"  {C.dim('Variant resolved:')} {model_name}")
+
+    return entry, model_name, primary_name, is_variant
+
 
 def load_config():
     """Load user config from ~/.config/frames/config.json."""
@@ -622,7 +660,7 @@ def save_config(config):
     os.replace(tmp_path, CONFIG_FILE)
 
 
-def get_color(model_name, color_arg, user_defaults=None):
+def get_color(model_name, color_arg, user_defaults=None, strict=False):
     """Resolve frame color for a device. Checks: CLI arg > user config > first in list."""
     if model_name not in FRAME_COLORS:
         return None
@@ -630,6 +668,9 @@ def get_color(model_name, color_arg, user_defaults=None):
     colors = FRAME_COLORS[model_name]
     if not colors:
         return None
+
+    if color_arg == "default":
+        color_arg = None
 
     if color_arg == "random":
         return random.choice(colors)
@@ -643,6 +684,8 @@ def get_color(model_name, color_arg, user_defaults=None):
                 return colors[idx]
         except ValueError:
             pass
+        if strict:
+            raise ValueError(f"Color '{color_arg}' not found for {model_name}.")
         print(f"{C.yellow('Warning')}: Color '{color_arg}' not found for {model_name}. Using default.", file=sys.stderr)
 
     # Check user config for saved default
@@ -655,6 +698,29 @@ def get_color(model_name, color_arg, user_defaults=None):
             return saved
 
     return colors[0]  # Fallback = first color
+
+
+def parse_per_input_colors(colors_arg, count):
+    """Parse comma-separated per-input colors and validate count."""
+    if colors_arg is None:
+        return None
+    values = [part.strip() for part in colors_arg.split(",")]
+    if any(not value for value in values):
+        raise ValueError("--colors cannot contain empty values.")
+    if len(values) != count:
+        raise ValueError(f"--colors expected {count} values, got {len(values)}.")
+    return values
+
+
+def validate_color_args(args):
+    if getattr(args, "color", None) and getattr(args, "colors", None):
+        raise ValueError("--color and --colors cannot be used together.")
+
+
+def color_arg_for_index(args, color_values, index):
+    if color_values is not None:
+        return color_values[index]
+    return getattr(args, "color", None)
 
 
 @lru_cache(maxsize=512)
@@ -794,6 +860,7 @@ def frame_screenshot(
     assets_dir,
     device_dict,
     color_arg=None,
+    strict_color=False,
     force_device=None,
     verbose=False,
     user_defaults=None,
@@ -805,28 +872,16 @@ def frame_screenshot(
         guard_image_size(w, h, img_path)
         img = opened.convert("RGBA")
 
-    # 1. Device detection
-    if force_device:
-        entry = (device_index or build_device_name_index(device_dict)).get(force_device)
-        if not entry:
-            raise ValueError(f"Device '{force_device}' not found in dictionary")
-        model_name = entry["name"]
-    else:
-        entry, model_name = detect_device(img, device_dict)
-        if not entry:
-            raise ValueError(f"Unknown device for {w}x{h} screenshot. Use 'frames list' to see supported devices.")
-
-    # 2. Variant resolution (skip auto-resolution when --device explicitly selects a frame)
-    if not force_device:
-        variant_data, model_name = resolve_variant(model_name, device_dict)
-        if variant_data:
-            entry = variant_data
-            if verbose:
-                print(f"  {C.dim('Variant resolved:')} {model_name}")
+    entry, model_name, primary_name, is_variant = resolve_device_entry(
+        w, h, device_dict,
+        force_device=force_device,
+        device_index=device_index,
+        verbose=verbose,
+    )
 
     # 3. Color
     has_colors = entry.get("colors") == "yes"
-    color = get_color(model_name, color_arg, user_defaults=user_defaults) if has_colors else None
+    color = get_color(model_name, color_arg, user_defaults=user_defaults, strict=strict_color) if has_colors else None
 
     # 4. Resize (for More Space resolutions)
     resize_width = entry.get("resizeWidth")
@@ -868,6 +923,7 @@ def frame_screenshot(
     info = {
         "source": str(img_path),
         "device": model_name,
+        "primary_match": primary_name,
         "color": color,
         "dimensions": f"{w}x{h}",
         "frame_size": f"{result.width}x{result.height}",
@@ -875,9 +931,678 @@ def frame_screenshot(
         "masked": has_mask and not mask_missing,
         "mask_missing": mask_missing,
         "physicalHeight": float(entry.get("physicalHeight", 0)),
+        "is_variant": is_variant,
     }
 
     return result, info
+
+
+# ── Video Engine ────────────────────────────────────────────────────────────
+
+def _run_json_command(cmd):
+    result = subprocess.run(cmd, text=True, capture_output=True, check=True)
+    return json.loads(result.stdout)
+
+
+def _parse_tool_version(tool, output):
+    first = (output or "").splitlines()[0] if output else ""
+    match = re.search(r"\bversion\s+([0-9]+)(?:\.([0-9]+))?", first)
+    token_match = re.search(r"\bversion\s+(\S+)", first)
+    display = token_match.group(1) if token_match else "unknown"
+    if not match:
+        raise RuntimeError(f"Could not determine {tool} version from: {first or 'empty output'}")
+    return (int(match.group(1)), int(match.group(2) or 0)), display
+
+
+def require_ffmpeg_tools():
+    missing = [tool for tool in ("ffmpeg", "ffprobe") if not shutil.which(tool)]
+    if missing:
+        raise RuntimeError(
+            f"Missing required video tool(s): {', '.join(missing)}. "
+            f"Install ffmpeg {MIN_FFMPEG_VERSION[0]}.{MIN_FFMPEG_VERSION[1]}+ "
+            "and ensure ffmpeg and ffprobe are on PATH."
+        )
+
+    for tool in ("ffmpeg", "ffprobe"):
+        try:
+            result = subprocess.run(
+                [tool, "-version"],
+                text=True,
+                capture_output=True,
+                check=True,
+            )
+            version_tuple, version = _parse_tool_version(tool, result.stdout)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            raise RuntimeError(f"Could not verify {tool} version: {e}") from e
+
+        if version_tuple < MIN_FFMPEG_VERSION:
+            raise RuntimeError(
+                f"{tool} {MIN_FFMPEG_VERSION[0]}.{MIN_FFMPEG_VERSION[1]}+ "
+                f"is required for video framing; found {version}."
+            )
+
+
+def _positive_int(value, label, path):
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Invalid {label} for {path}: {value!r}.") from e
+    if parsed <= 0:
+        raise ValueError(f"Invalid {label} for {path}: {value!r}.")
+    return parsed
+
+
+def _positive_float(value, label, path):
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"Invalid {label} for {path}: {value!r}.") from e
+    if not math.isfinite(parsed) or parsed <= 0:
+        raise ValueError(f"Invalid {label} for {path}: {value!r}.")
+    return parsed
+
+
+def probe_video(path):
+    data = _run_json_command([
+        "ffprobe", "-hide_banner", "-v", "error",
+        "-print_format", "json",
+        "-show_streams", "-show_format",
+        str(path),
+    ])
+    video_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), None)
+    if not video_stream:
+        raise ValueError(f"No video stream found in {path}.")
+
+    audio_stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "audio"), None)
+    duration_value = data.get("format", {}).get("duration") or video_stream.get("duration")
+    duration = _positive_float(duration_value, "duration", path)
+    width = _positive_int(video_stream.get("width"), "video width", path)
+    height = _positive_int(video_stream.get("height"), "video height", path)
+    guard_image_size(width, height, path)
+    fps_rate = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate") or "30/1"
+    fps = _parse_rate(fps_rate)
+    normalized_fps_rate = fps_rate if _valid_rate(fps_rate) else "30/1"
+    return {
+        "width": width,
+        "height": height,
+        "duration": duration,
+        "fps": fps,
+        "fps_rate": normalized_fps_rate,
+        "codec": video_stream.get("codec_name"),
+        "audio": audio_stream is not None,
+        "audio_codec": audio_stream.get("codec_name") if audio_stream else None,
+    }
+
+
+def _valid_rate(rate):
+    try:
+        num, den = str(rate).split("/", 1)
+        num = float(num)
+        den = float(den)
+    except (AttributeError, ValueError):
+        return False
+    return (
+        math.isfinite(num)
+        and math.isfinite(den)
+        and num > 0
+        and den > 0
+    )
+
+
+def _parse_rate(rate):
+    try:
+        num, den = rate.split("/", 1)
+        num = float(num)
+        den = float(den)
+        parsed = 0.0 if den == 0 else num / den
+    except (AttributeError, ValueError, ZeroDivisionError):
+        return 30.0
+    return parsed if math.isfinite(parsed) and parsed > 0 else 30.0
+
+
+def _normalize_rate(rate):
+    if not _valid_rate(rate):
+        return "30/1"
+    return rate
+
+
+def _ffmpeg_escape(value):
+    return str(value).replace("\\", "\\\\").replace(":", "\\:")
+
+
+def _background_color(value):
+    if value == "transparent":
+        return "black@0.0"
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", value or ""):
+        return "0x" + value[1:]
+    if value in {"white", "black"}:
+        return value
+    raise ValueError("--background must be white, black, transparent, or #RRGGBB.")
+
+
+def _output_uses_alpha(args):
+    return bool(args.alpha or args.codec == "prores" or args.background == "transparent")
+
+
+def _video_extension(args):
+    return ".mov" if _output_uses_alpha(args) else ".mp4"
+
+
+def _video_output_path(src_path, args, default_name=None, multiple=False):
+    ext = _video_extension(args)
+    if args.output:
+        output = Path(args.output)
+        if output.suffix and not multiple:
+            return output
+        name = default_name or f"{src_path.stem}_framed{ext}"
+        return output / name
+    if default_name:
+        return src_path.parent / default_name
+    return src_path.parent / f"{src_path.stem}_framed{ext}"
+
+
+def _gather_video_paths(paths):
+    result = []
+    for p in paths:
+        p = Path(p)
+        if p.is_dir():
+            for f in sorted(p.iterdir()):
+                if f.suffix.lower() in VALID_VIDEO_EXTS and not f.name.startswith("."):
+                    result.append(f)
+        elif p.is_file():
+            if p.suffix.lower() in VALID_VIDEO_EXTS:
+                result.append(p)
+            else:
+                print(f"{C.red('Error')}: {p} is not a supported video file", file=sys.stderr)
+        else:
+                print(f"{C.red('Error')}: {p} not found", file=sys.stderr)
+    return result
+
+
+def _video_info_for_path(
+    path,
+    assets_dir,
+    device_dict,
+    color_arg=None,
+    strict_color=False,
+    force_device=None,
+    verbose=False,
+    user_defaults=None,
+    device_index=None,
+):
+    video_meta = probe_video(path)
+    frame_meta = resolve_frame_metadata(
+        video_meta["width"],
+        video_meta["height"],
+        assets_dir,
+        device_dict,
+        color_arg=color_arg,
+        strict_color=strict_color,
+        force_device=force_device,
+        verbose=verbose,
+        user_defaults=user_defaults,
+        device_index=device_index,
+    )
+    return {
+        "file": str(path),
+        "name": path.name,
+        "width": video_meta["width"],
+        "height": video_meta["height"],
+        "dimensions": f"{video_meta['width']}x{video_meta['height']}",
+        "duration": round(video_meta["duration"], 6),
+        "fps": round(video_meta["fps"], 4),
+        "fps_rate": video_meta["fps_rate"],
+        "codec": video_meta["codec"],
+        "audio": video_meta["audio"],
+        "audio_codec": video_meta["audio_codec"],
+        "device": frame_meta["device"],
+        "primary_match": frame_meta["primary_match"],
+        "color": frame_meta["color"],
+        "frame_size": frame_meta["frame_size"],
+        "x": frame_meta["x"],
+        "y": frame_meta["y"],
+        "resize_width": frame_meta["resize_width"],
+        "resize_height": frame_meta["resize_height"],
+        "has_mask": frame_meta["has_mask"],
+        "mask_missing": frame_meta["mask_missing"],
+        "physicalHeight": frame_meta["physicalHeight"],
+        "is_variant": frame_meta["is_variant"],
+    }
+
+
+def resolve_frame_metadata(
+    width,
+    height,
+    assets_dir,
+    device_dict,
+    color_arg=None,
+    strict_color=False,
+    force_device=None,
+    verbose=False,
+    user_defaults=None,
+    device_index=None,
+):
+    entry, model_name, primary_name, is_variant = resolve_device_entry(
+        width, height, device_dict,
+        force_device=force_device,
+        device_index=device_index,
+        verbose=verbose,
+    )
+    has_colors = entry.get("colors") == "yes"
+    color = get_color(model_name, color_arg, user_defaults=user_defaults, strict=strict_color) if has_colors else None
+    frame, frame_path = load_frame(assets_dir, model_name, color)
+    if not frame:
+        raise FileNotFoundError(f"Frame asset not found: {frame_path}")
+    frame_size = frame.size
+
+    has_mask = entry.get("mask") == "yes"
+    mask_path = assets_dir / f"{model_name}_mask.png"
+    mask_missing = has_mask and not mask_path.exists()
+    if mask_missing:
+        print(
+            f"  {C.yellow('Warning')}: mask file missing for {model_name} "
+            f"(expected {model_name}_mask.png). Rendering without mask.",
+            file=sys.stderr,
+        )
+
+    resize_width = entry.get("resizeWidth")
+    resize_height = None
+    if resize_width:
+        resize_width = int(resize_width)
+        resize_height = int(height * (resize_width / width))
+
+    return {
+        "device": model_name,
+        "primary_match": primary_name,
+        "is_variant": is_variant,
+        "entry": entry,
+        "x": int(entry["x"]),
+        "y": int(entry["y"]),
+        "color": color,
+        "frame_path": str(frame_path),
+        "frame_width": frame_size[0],
+        "frame_height": frame_size[1],
+        "frame_size": f"{frame_size[0]}x{frame_size[1]}",
+        "has_mask": has_mask,
+        "mask_path": str(mask_path) if has_mask and not mask_missing else None,
+        "mask_missing": mask_missing,
+        "resize_width": resize_width,
+        "resize_height": resize_height,
+        "physicalHeight": float(entry.get("physicalHeight", 0)),
+    }
+
+
+def _encoder_args(args, use_hardware=True, prefer_software=False):
+    codec = "prores" if _output_uses_alpha(args) else args.codec
+    if codec == "prores":
+        return ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le"], False
+    if codec == "hevc":
+        if sys.platform == "darwin" and use_hardware and not prefer_software and shutil.which("ffmpeg"):
+            return ["-c:v", "hevc_videotoolbox", "-b:v", "10M"], True
+        return ["-c:v", "libx265", "-crf", str(args.quality), "-preset", "veryfast"], False
+    if sys.platform == "darwin" and use_hardware and not prefer_software and shutil.which("ffmpeg"):
+        return ["-c:v", "h264_videotoolbox", "-b:v", "12M", "-profile:v", "high"], True
+    return ["-c:v", "libx264", "-crf", str(args.quality), "-preset", "veryfast"], False
+
+
+def _run_ffmpeg(cmd, fallback_cmd=None):
+    result = subprocess.run(cmd, text=True, capture_output=True)
+    if result.returncode == 0:
+        return result
+    if fallback_cmd is not None:
+        fallback = subprocess.run(fallback_cmd, text=True, capture_output=True)
+        if fallback.returncode == 0:
+            return fallback
+        raise RuntimeError(fallback.stderr.strip() or fallback.stdout.strip() or "ffmpeg failed")
+    raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "ffmpeg failed")
+
+
+def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_output=False):
+    ensure_output_dir(out_path.parent)
+    inputs = ["-i", str(src_path)]
+    mask_index = None
+    frame_index = 1
+    if frame_meta["mask_path"]:
+        inputs += ["-loop", "1", "-i", frame_meta["mask_path"]]
+        mask_index = 1
+        frame_index = 2
+    inputs += ["-loop", "1", "-i", frame_meta["frame_path"]]
+
+    filters = []
+    source_chain = "[0:v]format=rgba"
+    if frame_meta["resize_width"]:
+        source_chain += f",scale={frame_meta['resize_width']}:{frame_meta['resize_height']}"
+    source_chain += "[v0]"
+    filters.append(source_chain)
+
+    video_label = "v0"
+    if mask_index is not None:
+        mask_chain = f"[{mask_index}:v]format=gray"
+        if frame_meta["resize_width"]:
+            mask_chain += f",scale={frame_meta['resize_width']}:{frame_meta['resize_height']}"
+        mask_chain += "[m0]"
+        filters.append(mask_chain)
+        filters.append("[v0][m0]alphamerge[vm]")
+        video_label = "vm"
+
+    background = _background_color(args.background)
+    canvas = (
+        f"color=c={background}:s={frame_meta['frame_width']}x{frame_meta['frame_height']}:"
+        f"r={_normalize_rate(video_meta['fps_rate'])}:d={video_meta['duration']}"
+    )
+    if _output_uses_alpha(args):
+        canvas += ",format=rgba"
+    canvas += "[base]"
+    filters.append(canvas)
+    filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}[tmp]")
+    out_format = "yuva444p10le" if _output_uses_alpha(args) else "yuv420p"
+    filters.append(f"[tmp][{frame_index}:v]overlay=0:0:format=auto,format={out_format}[out]")
+
+    enc_args, used_hw = _encoder_args(args, use_hardware=not temp_output, prefer_software=False)
+    fallback_enc_args, _ = _encoder_args(args, use_hardware=False, prefer_software=True)
+    base_cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        *inputs,
+        "-filter_complex", ";".join(filters),
+        "-map", "[out]",
+    ]
+    if args.strip_audio or not video_meta["audio"]:
+        audio_args = ["-an"]
+    else:
+        audio_args = ["-map", "0:a?", "-c:a", "copy"]
+    tail = ["-t", f"{video_meta['duration']:.6f}", *enc_args, *audio_args, "-movflags", "+faststart", str(out_path)]
+    cmd = base_cmd + tail
+
+    fallback_cmd = None
+    if used_hw:
+        fallback_tail = [
+            "-t", f"{video_meta['duration']:.6f}",
+            *fallback_enc_args,
+            *audio_args,
+            "-movflags", "+faststart",
+            str(out_path),
+        ]
+        fallback_cmd = base_cmd + fallback_tail
+
+    _run_ffmpeg(cmd, fallback_cmd=fallback_cmd)
+
+
+def compute_video_merge_layout(items, spacing, no_scale=False):
+    frames = []
+    for item in items:
+        frames.append({
+            "width": int(item["frame_meta"]["frame_width"]),
+            "height": int(item["frame_meta"]["frame_height"]),
+            "physicalHeight": float(item["frame_meta"].get("physicalHeight", 0)),
+        })
+
+    do_scale = (
+        not no_scale
+        and all(frame["physicalHeight"] > 0 for frame in frames)
+        and len({frame["physicalHeight"] for frame in frames}) > 1
+    )
+    if do_scale:
+        px_per_mm = [frame["height"] / frame["physicalHeight"] for frame in frames]
+        ref_ppm = min(px_per_mm)
+        for frame in frames:
+            target_h = round(frame["physicalHeight"] * ref_ppm)
+            scale = target_h / frame["height"]
+            frame["scale_factor"] = round(scale, 4)
+            if scale < 0.999:
+                frame["width"] = max(1, round(frame["width"] * scale))
+                frame["height"] = max(1, target_h)
+            else:
+                frame["scale_factor"] = 1.0
+    else:
+        for frame in frames:
+            frame["scale_factor"] = 1.0
+
+    total_width = sum(frame["width"] for frame in frames) + spacing * (len(frames) - 1)
+    max_height = max(frame["height"] for frame in frames)
+    x = 0
+    for frame in frames:
+        frame["x"] = x
+        frame["y"] = max_height - frame["height"]
+        x += frame["width"] + spacing
+    return total_width, max_height, frames
+
+
+def render_merged_video(items, out_path, args):
+    ensure_output_dir(out_path.parent)
+    width, height, layout = compute_video_merge_layout(items, args.spacing, no_scale=args.no_scale)
+    total_duration = (
+        sum(item["video_meta"]["duration"] for item in items)
+        if args.playback_offset
+        else max(item["video_meta"]["duration"] for item in items)
+    )
+
+    input_args = []
+    for item in items:
+        input_args += ["-i", str(item["temp_path"])]
+
+    filters = []
+    overlay_chain = f"color=c={_background_color(args.background)}:s={width}x{height}:r=30:d={total_duration}[base]"
+    filters.append(overlay_chain)
+    current = "base"
+    elapsed = 0.0
+    for idx, (item, frame) in enumerate(zip(items, layout)):
+        duration = item["video_meta"]["duration"]
+        if args.playback_offset:
+            start_pad = elapsed
+            stop_pad = max(0.0, total_duration - elapsed - duration)
+            elapsed += duration
+        else:
+            start_pad = 0.0
+            stop_pad = max(0.0, total_duration - duration)
+
+        chain = f"[{idx}:v]fps=30,setpts=PTS-STARTPTS"
+        if frame["width"] != item["frame_meta"]["frame_width"] or frame["height"] != item["frame_meta"]["frame_height"]:
+            chain += f",scale={frame['width']}:{frame['height']}"
+        tpad_args = []
+        if start_pad > 0:
+            tpad_args.append(f"start_mode=clone:start_duration={start_pad:.6f}")
+        if stop_pad > 0:
+            tpad_args.append(f"stop_mode=clone:stop_duration={stop_pad:.6f}")
+        if tpad_args:
+            chain += ",tpad=" + ":".join(tpad_args)
+        chain += f"[v{idx}]"
+        filters.append(chain)
+
+        next_label = "outv" if idx == len(items) - 1 else f"tmp{idx}"
+        filters.append(f"[{current}][v{idx}]overlay={frame['x']}:{frame['y']}[{next_label}]")
+        current = next_label
+
+    filters.append(f"[{current}]format=yuv420p[out]")
+
+    map_args = ["-map", "[out]"]
+    audio_filters = []
+    audio_map = []
+    if args.strip_audio:
+        audio_map = ["-an"]
+    elif args.playback_offset:
+        audio_labels = []
+        for idx, item in enumerate(items):
+            duration = item["video_meta"]["duration"]
+            if item["video_meta"]["audio"]:
+                audio_filters.append(f"[{idx}:a]atrim=0:{duration:.6f},asetpts=PTS-STARTPTS[a{idx}]")
+            else:
+                audio_filters.append(
+                    f"anullsrc=channel_layout=stereo:sample_rate=44100,"
+                    f"atrim=0:{duration:.6f},asetpts=PTS-STARTPTS[a{idx}]"
+                )
+            audio_labels.append(f"[a{idx}]")
+        audio_filters.append(f"{''.join(audio_labels)}concat=n={len(items)}:v=0:a=1[aout]")
+        audio_map = ["-map", "[aout]", "-c:a", "aac", "-b:a", "128k"]
+    else:
+        audio_map = ["-an"]
+
+    filters.extend(audio_filters)
+    enc_args, _ = _encoder_args(args, use_hardware=False, prefer_software=True)
+    cmd = [
+        "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        *input_args,
+        "-filter_complex", ";".join(filters),
+        *map_args,
+        *audio_map,
+        "-t", f"{total_duration:.6f}",
+        *enc_args,
+        "-movflags", "+faststart",
+        str(out_path),
+    ]
+    _run_ffmpeg(cmd)
+
+    for item, frame in zip(items, layout):
+        item["info"]["scale_factor"] = frame["scale_factor"]
+    return {
+        "width": width,
+        "height": height,
+        "duration": total_duration,
+        "layout": layout,
+    }
+
+
+def cmd_video(args):
+    """Frame one or more videos."""
+    try:
+        require_ffmpeg_tools()
+        validate_color_args(args)
+        _background_color(args.background)
+        if args.spacing < 0:
+            raise ValueError("--spacing must be 0 or greater.")
+        if args.quality < 0 or args.quality > 51:
+            raise ValueError("--quality must be between 0 and 51.")
+    except (RuntimeError, ValueError) as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
+    device_dict = load_json(assets_dir)
+    config = load_config()
+    user_defaults = config.get("default_colors", {})
+    device_index = build_device_name_index(device_dict)
+
+    expanded = _gather_video_paths(args.files)
+    if not expanded:
+        print(f"{C.red('Error')}: No videos found in the specified paths.", file=sys.stderr)
+        sys.exit(1)
+    if args.output and Path(args.output).suffix and len(expanded) > 1 and not args.merge:
+        print(f"{C.red('Error')}: --output can be a file only when framing one video.", file=sys.stderr)
+        sys.exit(1)
+    try:
+        color_values = parse_per_input_colors(getattr(args, "colors", None), len(expanded))
+    except ValueError as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    strict_colors = color_values is not None
+    items = []
+    try:
+        for idx, src in enumerate(expanded):
+            video_meta = probe_video(src)
+            frame_meta = resolve_frame_metadata(
+                video_meta["width"],
+                video_meta["height"],
+                assets_dir,
+                device_dict,
+                color_arg=color_arg_for_index(args, color_values, idx),
+                strict_color=strict_colors,
+                force_device=args.device,
+                verbose=args.verbose,
+                user_defaults=user_defaults,
+                device_index=device_index,
+            )
+            info = {
+                "source": str(src),
+                "device": frame_meta["device"],
+                "primary_match": frame_meta["primary_match"],
+                "color": frame_meta["color"],
+                "dimensions": f"{video_meta['width']}x{video_meta['height']}",
+                "frame_size": frame_meta["frame_size"],
+                "duration": round(video_meta["duration"], 6),
+                "fps": round(video_meta["fps"], 4),
+                "codec": video_meta["codec"],
+                "audio": video_meta["audio"] and not args.strip_audio,
+                "audio_stripped": bool(args.strip_audio),
+                "background": args.background,
+                "alpha": _output_uses_alpha(args),
+                "resized": bool(frame_meta["resize_width"]),
+                "masked": frame_meta["has_mask"] and not frame_meta["mask_missing"],
+                "mask_missing": frame_meta["mask_missing"],
+                "physicalHeight": frame_meta["physicalHeight"],
+            }
+            items.append({
+                "src": src,
+                "video_meta": video_meta,
+                "frame_meta": frame_meta,
+                "info": info,
+            })
+    except (ValueError, FileNotFoundError, subprocess.CalledProcessError, RuntimeError) as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    if args.merge and len(items) < 2:
+        print(f"{C.red('Error')}: --merge requires at least two videos.", file=sys.stderr)
+        sys.exit(1)
+    if args.playback_offset and not args.merge:
+        print(f"{C.red('Error')}: --playback-offset requires --merge.", file=sys.stderr)
+        sys.exit(1)
+
+    if args.merge:
+        out_path = _video_output_path(expanded[0], args, default_name=f"merged_framed{_video_extension(args)}", multiple=False)
+        try:
+            with tempfile.TemporaryDirectory(prefix="frames-video-") as tmp:
+                tmp_dir = Path(tmp)
+                for idx, item in enumerate(items):
+                    tmp_path = tmp_dir / f"framed_{idx}{_video_extension(args)}"
+                    if not args.json:
+                        print(f"  {C.dim('Framing')} {item['src'].name}...", end=" ", flush=True)
+                    render_framed_video(item["src"], tmp_path, item["frame_meta"], item["video_meta"], args, temp_output=True)
+                    item["temp_path"] = tmp_path
+                    if not args.json:
+                        print(C.green(item["info"]["device"]))
+                merge_info = render_merged_video(items, out_path, args)
+            for item in items:
+                item["info"]["output"] = str(out_path)
+            result_json = {
+                "merged": str(out_path),
+                "count": len(items),
+                "duration": round(merge_info["duration"], 6),
+                "dimensions": f"{merge_info['width']}x{merge_info['height']}",
+                "playback_offset": bool(args.playback_offset),
+                "audio": not args.strip_audio and bool(args.playback_offset),
+                "audio_stripped": bool(args.strip_audio),
+                "frames": [item["info"] for item in items],
+            }
+            if args.json:
+                print(json.dumps(result_json, indent=2))
+            else:
+                print(f"\n  {C.green('Merged')} {len(items)} videos → {C.bold(str(out_path))}")
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+            print(f"{C.red('Error')}: {e}", file=sys.stderr)
+            sys.exit(1)
+        return
+
+    outputs = []
+    multiple = len(items) > 1
+    for item in items:
+        out_path = _video_output_path(item["src"], args, multiple=multiple)
+        try:
+            if not args.json:
+                print(f"  {C.dim('Framing')} {item['src'].name}...", end=" ", flush=True)
+            render_framed_video(item["src"], out_path, item["frame_meta"], item["video_meta"], args)
+            item["info"]["output"] = str(out_path)
+            outputs.append(item["info"])
+            if not args.json:
+                print(f"{C.green(item['info']['device'])}")
+                print(f"  {C.dim('→')} {C.bold(str(out_path))}")
+        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+            print(f"{C.red('Error')}: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    if args.json:
+        print(json.dumps(outputs[0] if len(outputs) == 1 else {"videos": outputs}, indent=2))
+    elif outputs:
+        print()
 
 # ── CLI Commands ─────────────────────────────────────────────────────────────
 
@@ -900,11 +1625,21 @@ def cmd_frame(args):
     if args.spacing < 0:
         print(f"{C.red('Error')}: --spacing must be 0 or greater.", file=sys.stderr)
         sys.exit(1)
+    try:
+        validate_color_args(args)
+    except ValueError as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
 
     # Expand directories into image files
     expanded = _gather_image_paths(args.files)
     if not expanded:
         print(f"{C.red('Error')}: No images found in the specified paths.", file=sys.stderr)
+        sys.exit(1)
+    try:
+        color_values = parse_per_input_colors(getattr(args, "colors", None), len(expanded))
+    except ValueError as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -916,7 +1651,8 @@ def cmd_frame(args):
     framed = []
     infos = []
 
-    for p in expanded:
+    strict_colors = color_values is not None
+    for input_index, p in enumerate(expanded):
 
         try:
             if not args.json:
@@ -924,7 +1660,8 @@ def cmd_frame(args):
 
             result, info = frame_screenshot(
                 p, assets_dir, device_dict,
-                color_arg=args.color,
+                color_arg=color_arg_for_index(args, color_values, input_index),
+                strict_color=strict_colors,
                 force_device=args.device,
                 verbose=args.verbose,
                 user_defaults=user_defaults,
@@ -1510,6 +2247,90 @@ def cmd_info(args):
             print(f"    {C.red(f'{len(unmatched)}× unknown')}")
     print()
 
+
+def cmd_video_info(args):
+    """Probe videos and report matching frame metadata without rendering."""
+    try:
+        require_ffmpeg_tools()
+        validate_color_args(args)
+    except (RuntimeError, ValueError) as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
+    device_dict = load_json(assets_dir)
+    config = load_config()
+    user_defaults = config.get("default_colors", {})
+    device_index = build_device_name_index(device_dict)
+
+    video_paths = _gather_video_paths(args.files)
+    if not video_paths:
+        print(f"{C.red('Error')}: No videos found in the specified paths.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        color_values = parse_per_input_colors(getattr(args, "colors", None), len(video_paths))
+    except ValueError as e:
+        print(f"{C.red('Error')}: {e}", file=sys.stderr)
+        sys.exit(1)
+
+    strict_colors = color_values is not None
+    results = []
+    for idx, path in enumerate(video_paths):
+        try:
+            info = _video_info_for_path(
+                path,
+                assets_dir,
+                device_dict,
+                color_arg=color_arg_for_index(args, color_values, idx),
+                strict_color=strict_colors,
+                force_device=args.device,
+                verbose=args.verbose,
+                user_defaults=user_defaults,
+                device_index=device_index,
+            )
+            results.append(info)
+        except (ValueError, FileNotFoundError, subprocess.CalledProcessError, RuntimeError) as e:
+            results.append({"file": str(path), "name": path.name, "error": str(e)})
+
+    if args.json:
+        print(json.dumps(results if len(results) > 1 else results[0], indent=2))
+        return
+
+    matched = [r for r in results if r.get("device")]
+    failed = [r for r in results if not r.get("device")]
+    if len(video_paths) > 1:
+        print(f"\n  {C.bold('Scanned')} {len(video_paths)} videos: "
+              f"{C.green(str(len(matched)) + ' matched')}, "
+              f"{C.red(str(len(failed)) + ' failed') if failed else C.dim('0 failed')}")
+
+    for r in results:
+        print()
+        print(f"  {C.bold(r['name'])}")
+        if r.get("error"):
+            print(f"  {C.red('✗')} {r['error']}")
+            continue
+
+        dims = f'{r["width"]} × {r["height"]}'
+        duration = f'{r["duration"]:.2f}s'
+        audio = f", audio: {r['audio_codec']}" if r.get("audio") else ", no audio"
+        print(f"  {C.dim(dims)} {C.dim('•')} {duration} {C.dim('•')} {r.get('codec') or 'unknown codec'}{audio}")
+        print(f"  {C.green('✓')} {C.bold(r['device'])}")
+        if r.get("is_variant"):
+            print(f"    {C.dim('Primary match:')} {r['primary_match']} {C.dim('→ variant resolved')}")
+        print(f"    {C.dim('Frame size:')} {r['frame_size']}")
+        if r.get("color"):
+            print(f"    {C.dim('Color:')} {r['color']}")
+        else:
+            print(f"    {C.dim('Color:')} none")
+        if r.get("resize_width"):
+            print(f"    {C.dim('Scaled from')} {r['width']}px {C.dim('→')} {r['resize_width']}px")
+        if r.get("has_mask"):
+            mask_note = "missing" if r.get("mask_missing") else "available"
+            print(f"    {C.dim('Mask:')} {mask_note}")
+    print()
+
+
 def copy_to_clipboard(path, announce=True):
     """Copy image to macOS clipboard."""
     if sys.platform != "darwin":
@@ -1647,12 +2468,13 @@ def build_parser():
         "Examples:\n"
         "  frames -m shot1.png shot2.png\n"
         "  frames -m --no-scale shot1.png shot2.png\n"
+        "  frames --json video-info recording.mp4\n"
         "  frames frame --help\n"
         "  frames doctor"
     )
     p = argparse.ArgumentParser(
         prog="frames",
-        description="Frame screenshots with Apple device bezels",
+        description="Frame screenshots and videos with Apple device bezels",
         add_help=True,
         epilog=epilog,
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -1669,6 +2491,7 @@ def build_parser():
     frame_p = sub.add_parser("frame", help="Frame screenshots (default command)")
     frame_p.add_argument("files", nargs="*", help="Screenshot files to frame")
     frame_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
+    frame_p.add_argument("--colors", help="Comma-separated per-input colors (e.g. Silver,random)")
     frame_p.add_argument("--merge", "-m", action="store_true", help="Merge framed images side by side")
     frame_p.add_argument("--batch", "-b", type=int, metavar="N", help="Merge in batches of N (e.g. -b 3 for groups of 3)")
     frame_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
@@ -1679,6 +2502,24 @@ def build_parser():
     frame_p.add_argument("-f", action="store_const", const="framed", dest="subfolder", help="Save to /framed/ subfolder")
     frame_p.add_argument("--subfolder", dest="subfolder", metavar="NAME", help="Save to custom subfolder (e.g. --subfolder mockups)")
     frame_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
+
+    # Video command
+    video_p = sub.add_parser("video", help="Frame screen recordings and videos")
+    video_p.add_argument("files", nargs="*", help="Video files to frame")
+    video_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
+    video_p.add_argument("--colors", help="Comma-separated per-input colors (e.g. Silver,random)")
+    video_p.add_argument("--merge", "-m", action="store_true", help="Merge framed videos side by side")
+    video_p.add_argument("--playback-offset", action="store_true", help="Play merged videos sequentially left to right")
+    video_p.add_argument("--strip-audio", action="store_true", help="Remove audio from output")
+    video_p.add_argument("--background", default="white", help="white, black, transparent, or #RRGGBB")
+    video_p.add_argument("--codec", choices=("h264", "hevc", "prores"), default="h264", help="Output video codec")
+    video_p.add_argument("--alpha", action="store_true", help="Output transparent ProRes MOV")
+    video_p.add_argument("--quality", type=int, default=18, help="Software encoder CRF quality (default: 18)")
+    video_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
+    video_p.add_argument("--no-scale", action="store_true", help="Disable proportional scaling when merging different devices")
+    video_p.add_argument("--output", "-o", help="Output directory or single output file")
+    video_p.add_argument("--device", "-d", help="Force specific device frame")
+    video_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
 
     # List command
     sub.add_parser("list", help="List supported devices")
@@ -1693,6 +2534,14 @@ def build_parser():
     # Info command
     info_p = sub.add_parser("info", help="Detect device for screenshots or folders")
     info_p.add_argument("files", nargs="+", help="Screenshot files or directories to scan")
+
+    # Video info command
+    video_info_p = sub.add_parser("video-info", help="Probe videos and show matching frame metadata")
+    video_info_p.add_argument("files", nargs="+", help="Video files or directories to scan")
+    video_info_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
+    video_info_p.add_argument("--colors", help="Comma-separated per-input colors (e.g. Silver,random)")
+    video_info_p.add_argument("--device", "-d", help="Force specific device frame")
+    video_info_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
 
     # Setup command
     setup_p = sub.add_parser("setup", help="Download assets or configure path")
@@ -1710,7 +2559,7 @@ def main():
 
     # Pre-process argv: if the first non-flag arg isn't a known subcommand,
     # assume it's a file and inject "frame" as the subcommand
-    known_cmds = {"frame", "list", "list-colors", "colors", "info", "setup", "doctor", "-h", "--help", "--version"}
+    known_cmds = {"frame", "video", "video-info", "list", "list-colors", "colors", "info", "setup", "doctor", "-h", "--help", "--version"}
     argv = sys.argv[1:]
     if argv:
         global_flags = {"-h", "--help", "--version", "--no-color", "--json", "-v", "--verbose"}
@@ -1762,6 +2611,8 @@ def main():
     # Route commands
     cmds = {
         "frame": cmd_frame,
+        "video": cmd_video,
+        "video-info": cmd_video_info,
         "list": cmd_list,
         "list-colors": cmd_list_colors,
         "colors": cmd_colors,

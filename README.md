@@ -9,6 +9,7 @@ Frame device screenshots with Apple product bezels from the command line. Auto-d
 ### Requirements
 - Python 3.8+
 - Pillow (Python imaging library)
+- ffmpeg 5.1+ and ffprobe 5.1+ for video framing
 
 ### Option A: Clone the repo (recommended)
 
@@ -93,6 +94,18 @@ frames -c "Cosmic Orange" screenshot.png
 # Frame with random colors
 frames -c random *.png
 
+# Assign colors per input
+frames --colors "Silver,Space Black,random" one.png two.png three.png
+
+# Frame a screen recording
+frames video recording.mp4
+
+# Inspect a video match without rendering
+frames --json video-info recording.mp4
+
+# Merge framed videos with left-to-right sequential playback
+frames video -m --playback-offset 1.mp4 2.mp4
+
 # Frame and merge side by side
 frames -m screenshot1.png screenshot2.png
 
@@ -136,21 +149,83 @@ frames -m -s 80 screenshot1.png screenshot2.png
 
 **Device detection:** Automatic from screenshot pixel width. When multiple devices share a width, height disambiguates. The newest device frame is used when multiple generations share a resolution — override with `--device`.
 
-**Color resolution:** `--color` flag > user default (set via `colors` command) > first color in device's list.
+**Color resolution:** `--colors` per-input value > `--color` flag > user default (set via `colors` command) > first color in device's list.
 
 ---
 
-### `--color` / `-c`
+### `--color` / `-c` and `--colors`
 
-Specify a frame color by name, 1-based index, or `random`.
+Specify a frame color by exact name, 1-based index, `default`, or `random`.
 
 ```bash
 frames -c "Cosmic Orange" screenshot.png
 frames -c 2 screenshot.png
 frames -c random *.png
+frames --colors "Silver,Space Black,random" one.png two.png three.png
 ```
 
-Partial color name matching is supported. Use `list-colors` to see what's available for a device.
+`--color random` randomizes independently per input. `--colors` maps comma-separated values to expanded inputs by order, and it cannot be combined with `--color`. Use `list-colors` to see what's available for a device.
+
+---
+
+### `video`
+
+Frame screen recordings or videos with the same Apple Frames assets used for screenshots.
+
+```bash
+frames video recording.mp4
+frames video -c Silver recording.mp4
+frames video --colors "Silver,random" 1.mp4 2.mp4
+frames video --strip-audio recording.mp4
+```
+
+Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. Supported input extensions are `.mp4`, `.mov`, and `.m4v`.
+
+Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha` / ProRes output. Audio is preserved unless `--strip-audio` is passed.
+
+```bash
+# Transparent ProRes MOV
+frames video --alpha recording.mp4
+
+# HEVC output
+frames video --codec hevc recording.mp4
+
+# Custom background
+frames video --background "#f5f5f5" recording.mp4
+```
+
+### Video merging
+
+Merge multiple framed videos into a horizontal canvas. By default, videos play simultaneously and the output duration is the longest input.
+
+```bash
+frames video -m 1.mp4 2.mp4
+frames video -m --no-scale 1.mp4 2.mp4
+```
+
+When merging different devices, videos are proportionally scaled using the same physical-height model as image merges and bottom-aligned.
+
+Use `--playback-offset` to play videos one at a time from left to right. Inactive videos hold on their first frame before playback and their final frame after playback.
+
+```bash
+frames video -m --playback-offset 1.mp4 2.mp4
+```
+
+With `--playback-offset`, audio is concatenated sequentially and videos without audio contribute silence. Simultaneous video merges omit mixed audio in this version.
+
+---
+
+### `video-info`
+
+Probe videos and report matching Apple frame metadata without rendering.
+
+```bash
+frames video-info recording.mp4
+frames --json video-info recording.mp4
+frames --json video-info --colors "Silver,random" 1.mp4 2.mp4
+```
+
+`video-info` uses the same device, variant, color, ffmpeg, and ffprobe checks as `frames video`. It reports dimensions, duration, fps, codec, audio state, matched device, selected color, frame size, mask state, and resize metadata.
 
 ---
 

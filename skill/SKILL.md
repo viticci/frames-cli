@@ -1,18 +1,22 @@
 ---
 name: frames-cli
-description: Frame screenshots with the `frames` CLI. Use this skill when the user asks to add Apple device bezels, frame screenshots, create device mockups, inspect screenshot/device matches, or batch-process screenshot folders with the command line.
+description: Frame screenshots and screen recordings with the `frames` CLI. Use this skill when the user asks to add Apple device bezels, frame screenshots or videos, create device mockups, inspect screenshot/device matches, or batch-process screenshot/video folders with the command line.
 ---
 
 # Apple Frames CLI
 
-`frames` 1.2.8 is a single-file Python CLI that applies Apple device bezels to screenshots, auto-detects devices from screenshot dimensions, applies masks when needed, and can merge multiple framed results into one composite image.
+`frames` 1.3.0 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
 
 ## What Agents Should Know
 
 - `frames` is the default command. `frames screenshot.png` and `frames frame screenshot.png` are equivalent.
-- Use `frames --json` for automation. JSON stays valid even with `--copy`; clipboard status messages go to `stderr`.
+- Use `frames --json ...` for automation. Put global flags such as `--json`, `--assets`, and `--verbose` before subcommands for the broadest compatibility.
 - Device support comes from the installed asset bundle, not hardcoded names in this skill. Use `frames list` and `frames list-colors` as the source of truth when exact names matter.
 - On macOS, the default asset location is the Apple Frames shortcut folder in iCloud Drive. That avoids downloading a second copy when the user already has the shortcut assets installed.
+- Use `frames video ...` for `.mp4`, `.mov`, and `.m4v`; the default `frames ...` path is for images.
+- Use `frames video-info ...` to probe videos and resolve the matching frame metadata without rendering.
+- Video framing requires external `ffmpeg` 5.1+ and `ffprobe` 5.1+. The CLI checks this and fails cleanly, so agents should report that error instead of trying to render around it.
+- `frames video` preserves single-video audio by default. Pass `--strip-audio` when the user asks for silent output, privacy-safe delivery, or validation clips where audio does not matter.
 
 ## Quick Reference
 
@@ -26,6 +30,17 @@ frames ~/Screenshots/
 # Pick a specific color or randomize colors
 frames -c "Cosmic Orange" screenshot.png
 frames -c random *.png
+frames --colors "Silver,Space Black,random" one.png two.png three.png
+
+# Frame videos
+frames video-info recording.mp4
+frames --json video-info recording.mp4
+frames video recording.mp4
+frames --json video --strip-audio recording.mp4
+frames video --strip-audio recording.mp4
+frames video --background "#f5f5f5" --codec hevc recording.mp4
+frames video -m --playback-offset 1.mp4 2.mp4
+frames video -m --colors "Silver,random" 1.mp4 2.mp4
 
 # Force an exact frame instead of auto-resolving the newest variant
 frames -d "iPhone 15 Pro Portrait" screenshot.png
@@ -69,9 +84,13 @@ frames setup /path/to/Frames
 
 - Auto-detect devices from screenshot width, with height-based overlap disambiguation where needed.
 - Resolve width-sharing devices to the newest default frame automatically. Pass `--device` to skip variant resolution.
-- Apply frame colors by exact name, partial numeric index, or `random`.
+- Apply frame colors by exact name, 1-based numeric index, `default`, or `random`.
+- Use `--colors` for per-input colors on images and videos; it maps comma-separated values to expanded inputs by order.
 - Apply masks when the asset entry requires clipping.
 - Merge multiple framed outputs with physical-size normalization by default.
+- Frame `.mp4`, `.mov`, and `.m4v` files through `frames video`; single-video audio is preserved unless `--strip-audio` is passed.
+- Inspect video/device matches without rendering through `frames video-info`.
+- Merge videos simultaneously with `frames video -m`, or sequentially left-to-right with `frames video -m --playback-offset`.
 - Use `--no-scale` to disable proportional scaling and keep native framed sizes when merging.
 - Use `--batch N` to merge sequential groups. `--batch` implies merge and `N` must be at least `2`.
 - Save next to originals, into `--output`, or into a validated single-name subfolder via `-f` or `--subfolder`.
@@ -91,8 +110,25 @@ frames setup /path/to/Frames
 - `frames list-colors` does partial device-name matching. `frames list-colors "17 Pro"` is valid.
 - Directory inputs are expanded one level deep only. The CLI scans top-level image files inside the directory; it is not recursive.
 - Supported input image extensions are `.png`, `.jpg`, `.jpeg`, `.heic`, `.tiff`, and `.webp`.
+- Supported input video extensions are `.mp4`, `.mov`, and `.m4v`.
 - Images larger than `20,000px` on either side trigger a warning. Images larger than `50,000px` are rejected.
 - `--subfolder` only accepts a single directory name, not a path like `../out` or `foo/bar`.
+
+## Video Notes
+
+- `frames video-info FILE` reports dimensions, duration, fps, codec, audio state, matched device, selected color, frame size, mask state, and resize metadata without creating an output video.
+- `frames video FILE` writes `FILE_framed.mp4` by default, or `.mov` when `--alpha`, `--codec prores`, or `--background transparent` is used.
+- For one video, `--output` may be an explicit output file path or a directory. For multiple individual videos, use an output directory.
+- `--merge` creates one horizontal video. Without `--playback-offset`, videos play simultaneously and duration is the longest input.
+- `--playback-offset` requires `--merge`; videos play left to right, inactive future videos hold their first frame, and completed videos hold their final frame.
+- Merged videos are proportionally scaled by device `physicalHeight` and bottom-aligned by default. Use `--no-scale` only when native framed pixel sizes matter more than physical proportion.
+- Single-video output preserves audio unless `--strip-audio` is passed. Sequential `--playback-offset` merges concatenate audio and generate silence for inputs without audio. Simultaneous merges omit mixed audio in this version.
+- `--background` accepts only `white`, `black`, `transparent`, or `#RRGGBB`. `transparent` implies alpha/ProRes MOV output.
+- `--codec h264` is the default. `--codec hevc` is smaller but may be slower or less compatible. Use `--codec prores` or `--alpha` for transparent `.mov`.
+- `--quality N` controls software CRF encoders; lower is higher quality. The default is `18`.
+- `--color random` randomizes independently per input. `--colors "A,B,random"` maps values to expanded inputs by order and the count must match after directory expansion.
+- `video-info` accepts `--device`, `--color`, and `--colors`; it uses the same resolution rules as `frames video`.
+- Taildrop or other delivery is separate from `frames`; render first, verify the output, then use the delivery workflow the user requested.
 
 ## JSON Output Behavior
 
@@ -102,7 +138,10 @@ frames setup /path/to/Frames
 - `frames --json -b N ...` returns `batches`, `batch_size`, `total`, and `frames`.
 - When proportional merge scaling is applied, per-frame `scale_factor` values are included in the JSON output.
 - `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`.
+- `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `resize_width`, and `mask_missing`.
 - `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
+- `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs.
+- `frames --json video -m ...` returns `merged`, `duration`, `dimensions`, `playback_offset`, audio state, and per-input `frames`.
 
 ## Assets and Config
 
@@ -137,7 +176,7 @@ Setup behavior:
 
 ## Current Supported Device Families
 
-The current v4 asset bundle used by `frames` 1.2.8 includes these primary families:
+The current v4 asset bundle used by `frames` 1.3.0 includes these primary families:
 
 - iPhone: iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
@@ -160,8 +199,11 @@ If an exact older variant is required, pass `--device` with the exact frame name
 
 ## Recommended Agent Workflow
 
-1. Run `frames --json info ...` first when you do not control the screenshot source.
+1. Run `frames --json info ...` first when you do not control the screenshot source. For videos, run `frames --json video-info ...` when you need dimensions, duration, audio state, or the matched frame before rendering.
 2. If the user asks for a specific device or color, confirm the exact names with `frames list` or `frames list-colors`.
 3. Use `frames doctor` before changing config or re-downloading assets.
 4. Use `--device` only when the user wants an exact frame, older variant, or a non-default shared-size match.
 5. Use `--no-scale` only when the user explicitly wants native framed sizes instead of physically proportionate merges.
+6. For multi-video previews, choose `frames video -m` for simultaneous playback and `frames video -m --playback-offset` for left-to-right sequential playback.
+7. Prefer `--strip-audio` for generated test artifacts unless the user specifically wants audio preserved.
+8. After video rendering, verify with `ffprobe` when final output audio state, duration, codec, or stream count matters.
