@@ -183,6 +183,18 @@ Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. Supported input extensi
 
 Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha` / ProRes output. Audio is preserved unless `--strip-audio` is passed.
 
+Common video recipes:
+
+| Goal | Command |
+| --- | --- |
+| Check the match before rendering | `frames --json video-info recording.mp4` |
+| Frame one video | `frames video recording.mp4` |
+| Frame silently | `frames video --strip-audio recording.mp4` |
+| Merge videos simultaneously | `frames video -m 1.mp4 2.mp4` |
+| Play merged videos left to right | `frames video -m --playback-offset 1.mp4 2.mp4` |
+| Assign per-input colors | `frames video --colors "Silver,random" 1.mp4 2.mp4` |
+| Transparent ProRes MOV | `frames video --alpha recording.mp4` |
+
 ```bash
 # Transparent ProRes MOV
 frames video --alpha recording.mp4

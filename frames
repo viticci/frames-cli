@@ -2504,7 +2504,25 @@ def build_parser():
     frame_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
 
     # Video command
-    video_p = sub.add_parser("video", help="Frame screen recordings and videos")
+    video_epilog = (
+        "Video requirements: ffmpeg 5.1+ and ffprobe 5.1+ must be on PATH.\n"
+        "Audio: single videos preserve audio unless --strip-audio is used; "
+        "simultaneous merges omit mixed audio; --playback-offset concatenates audio.\n"
+        "Examples:\n"
+        "  frames video recording.mp4\n"
+        "  frames --json video --strip-audio recording.mp4\n"
+        "  frames video -m 1.mp4 2.mp4\n"
+        "  frames video -m --playback-offset 1.mp4 2.mp4\n"
+        "  frames video --background '#f5f5f5' --codec hevc recording.mp4\n"
+        "  frames video --alpha recording.mp4"
+    )
+    video_p = sub.add_parser(
+        "video",
+        help="Frame screen recordings and videos",
+        description="Frame .mp4, .mov, and .m4v videos with Apple device bezels.",
+        epilog=video_epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     video_p.add_argument("files", nargs="*", help="Video files to frame")
     video_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
     video_p.add_argument("--colors", help="Comma-separated per-input colors (e.g. Silver,random)")
@@ -2536,7 +2554,21 @@ def build_parser():
     info_p.add_argument("files", nargs="+", help="Screenshot files or directories to scan")
 
     # Video info command
-    video_info_p = sub.add_parser("video-info", help="Probe videos and show matching frame metadata")
+    video_info_epilog = (
+        "Use this before rendering when you need the matched device, frame size, "
+        "duration, codec, or audio state.\n"
+        "Examples:\n"
+        "  frames video-info recording.mp4\n"
+        "  frames --json video-info recording.mp4\n"
+        "  frames --json video-info --colors 'Silver,random' 1.mp4 2.mp4"
+    )
+    video_info_p = sub.add_parser(
+        "video-info",
+        help="Probe videos and show matching frame metadata",
+        description="Probe videos and resolve Apple frame metadata without rendering.",
+        epilog=video_info_epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     video_info_p.add_argument("files", nargs="+", help="Video files or directories to scan")
     video_info_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
     video_info_p.add_argument("--colors", help="Comma-separated per-input colors (e.g. Silver,random)")

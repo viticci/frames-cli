@@ -106,6 +106,7 @@ frames setup /path/to/Frames
   - `--no-color` to disable ANSI color
   - `--assets PATH` to override asset discovery
   - `-v` / `--verbose` for variant, resize, and mask details
+- Use `frames video --help` and `frames video-info --help` for the human-facing video examples and option summaries.
 - `frames colors` is interactive in a real terminal. If stdin is not a TTY, or `curses` is unavailable, it falls back to a plain printed color list.
 - `frames list-colors` does partial device-name matching. `frames list-colors "17 Pro"` is valid.
 - Directory inputs are expanded one level deep only. The CLI scans top-level image files inside the directory; it is not recursive.
