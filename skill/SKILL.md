@@ -15,7 +15,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 - On macOS, the default asset location is the Apple Frames shortcut folder in iCloud Drive. That avoids downloading a second copy when the user already has the shortcut assets installed.
 - Use `frames video ...` for `.mp4`, `.mov`, and `.m4v`; the default `frames ...` path is for images.
 - Use `frames video-info ...` to probe videos and resolve the matching frame metadata without rendering.
-- Video framing requires external `ffmpeg` 5.1+ and `ffprobe` 5.1+. The CLI checks this and fails cleanly, so agents should report that error instead of trying to render around it.
+- Video framing requires external `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks this and can offer a Homebrew install on macOS; `frames doctor` reports video tool readiness.
 - `frames video` preserves single-video audio by default. Pass `--strip-audio` when the user asks for silent output, privacy-safe delivery, or validation clips where audio does not matter.
 
 ## Quick Reference
@@ -89,6 +89,7 @@ frames setup /path/to/Frames
 - Apply masks when the asset entry requires clipping.
 - Merge multiple framed outputs with physical-size normalization by default.
 - Frame `.mp4`, `.mov`, and `.m4v` files through `frames video`; single-video audio is preserved unless `--strip-audio` is passed.
+- Show a live terminal progress bar during video renders in interactive mode; JSON and non-TTY runs stay pipeline-friendly.
 - Inspect video/device matches without rendering through `frames video-info`.
 - Merge videos simultaneously with `frames video -m`, or sequentially left-to-right with `frames video -m --playback-offset`.
 - Use `--no-scale` to disable proportional scaling and keep native framed sizes when merging.
@@ -172,8 +173,9 @@ Setup behavior:
 - `frames setup` downloads the current asset archive from `https://cdn.macstories.net/AppleFrames401.zip`.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
+- Setup checks `ffmpeg`/`ffprobe` for video framing and can install ffmpeg through Homebrew on macOS when run interactively.
 - `frames setup --subfolder` and `frames setup --no-subfolder` update the default save behavior in config.
-- `frames doctor` is the first command to run when assets were moved, edited, or corrupted.
+- `frames doctor` is the first command to run when assets were moved, edited, corrupted, or when video dependencies need verification.
 
 ## Current Supported Device Families
 

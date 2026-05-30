@@ -398,6 +398,7 @@ def guided_setup(reason=None):
     print(f"  {C.green('Setup complete!')}")
     print(f"  {C.bold('Assets:')}  {short_dest}")
     print(f"  {C.bold('Config:')}  {CONFIG_FILE}")
+    offer_video_tools_setup()
     print()
     print(f"  {C.dim('Run')} {C.cyan('frames')} screenshot.png {C.dim('to get started.')}")
     print()
@@ -475,7 +476,7 @@ def show_splash():
     ver = C.dim(f"v{VERSION}")
     author = C.dim("by Federico Viticci")
     print(f"\n  {C.bold('Apple Frames CLI')} {ver}  {author}")
-    print(f"  {C.dim('Frame screenshots with Apple device bezels')}\n")
+    print(f"  {C.dim('Frame screenshots and videos with Apple device bezels')}\n")
     print(f"  {C.dim('Quick start:')}")
     print(f"    {C.cyan('frames')} screenshot.png         {C.dim('Frame a screenshot')}")
     print(f"    {C.cyan('frames')} *.png                  {C.dim('Frame all PNGs in directory')}")
@@ -483,6 +484,9 @@ def show_splash():
     print(f"    {C.cyan('frames')} -b 3 *.png             {C.dim('Merge in batches of 3')}")
     print(f"    {C.cyan('frames')} -m --no-scale *.png    {C.dim('Merge without proportional scaling')}")
     print(f"    {C.cyan('frames')} -c random *.png        {C.dim('Random frame colors')}")
+    print(f"    {C.cyan('frames')} video recording.mp4    {C.dim('Frame a screen recording')}")
+    print(f"    {C.cyan('frames')} video-info clip.mp4    {C.dim('Inspect video match first')}")
+    print(f"    {C.cyan('frames')} video -m 1.mp4 2.mp4  {C.dim('Merge framed videos')}")
     print(f"    {C.cyan('frames')} ~/Screenshots/          {C.dim('Frame all images in a folder')}")
     print(f"    {C.cyan('frames')} -f *.png               {C.dim('Save to /framed/ subfolder')}")
     print(f"    {C.cyan('frames')} --subfolder mockups *.png {C.dim('Save to custom subfolder')}")
@@ -982,6 +986,81 @@ def require_ffmpeg_tools():
             )
 
 
+def _video_tools_error():
+    try:
+        require_ffmpeg_tools()
+        return None
+    except RuntimeError as e:
+        return str(e)
+
+
+def _brew_path():
+    candidates = [shutil.which("brew"), "/opt/homebrew/bin/brew", "/usr/local/bin/brew"]
+    for candidate in candidates:
+        if candidate and Path(candidate).exists():
+            return candidate
+    return None
+
+
+def _video_tools_install_hint(error_text):
+    if sys.platform == "darwin":
+        if "is required for video framing" in error_text:
+            return "brew upgrade ffmpeg"
+        return "brew install ffmpeg"
+    if sys.platform.startswith("linux"):
+        return "Install ffmpeg with your package manager, e.g. `sudo apt install ffmpeg`."
+    if sys.platform.startswith("win"):
+        return "Install ffmpeg 5.1+ and add both ffmpeg and ffprobe to PATH."
+    return "Install ffmpeg 5.1+ and ensure both ffmpeg and ffprobe are on PATH."
+
+
+def offer_video_tools_setup():
+    """Check optional video tools during setup and offer a simple macOS install."""
+    error_text = _video_tools_error()
+    if error_text is None:
+        print(f"  {C.green('Video tools ready')} {C.dim('ffmpeg/ffprobe detected')}")
+        return True
+
+    print()
+    print(f"  {C.yellow('Video tools needed')} {C.dim('for screen recording framing')}")
+    print(f"  {C.dim(error_text)}")
+
+    hint = _video_tools_install_hint(error_text)
+    brew = _brew_path()
+    can_install = sys.platform == "darwin" and brew and sys.stdin.isatty()
+    if not can_install:
+        print(f"  {C.dim('Run:')} {C.cyan(hint)}")
+        return False
+
+    brew_action = "upgrade" if "upgrade" in hint else "install"
+    print()
+    print(f"  Install ffmpeg with Homebrew now? {C.dim(f'({Path(brew).name} {brew_action} ffmpeg)')}")
+    print(f"  {C.bold('Enter')} {C.dim('to install  |')}  {C.bold('q')} {C.dim('to skip')}")
+    try:
+        choice = input(f"  {C.bold('›')} ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(f"\n  {C.dim('Skipped video tools setup.')}")
+        return False
+
+    if choice in {"q", "quit", "n", "no"}:
+        print(f"  {C.dim('Skipped. Run')} {C.cyan(hint)} {C.dim('when you need video framing.')}")
+        return False
+
+    result = subprocess.run([brew, brew_action, "ffmpeg"])
+    if result.returncode != 0:
+        print(f"  {C.yellow('Homebrew install failed.')} {C.dim('Run manually:')} {C.cyan(hint)}")
+        return False
+
+    verify_error = _video_tools_error()
+    if verify_error is None:
+        print(f"  {C.green('Video tools ready')} {C.dim('ffmpeg/ffprobe detected')}")
+        return True
+
+    print(f"  {C.yellow('Video tools still unavailable')}: {verify_error}")
+    print(f"  {C.dim('Run:')} {C.cyan(hint)}")
+    return False
+
+
 def _positive_int(value, label, path):
     try:
         parsed = int(value)
@@ -1245,19 +1324,103 @@ def _encoder_args(args, use_hardware=True, prefer_software=False):
     return ["-c:v", "libx264", "-crf", str(args.quality), "-preset", "veryfast"], False
 
 
-def _run_ffmpeg(cmd, fallback_cmd=None):
-    result = subprocess.run(cmd, text=True, capture_output=True)
+def _ffmpeg_progress_cmd(cmd):
+    return [cmd[0], "-progress", "pipe:1", "-nostats", *cmd[1:]]
+
+
+def _format_progress_time(seconds):
+    seconds = max(0.0, float(seconds))
+    if seconds < 10:
+        return f"{seconds:.1f}s"
+    rounded = int(round(seconds))
+    minutes, secs = divmod(rounded, 60)
+    hours, minutes = divmod(minutes, 60)
+    if hours:
+        return f"{hours:d}:{minutes:02d}:{secs:02d}"
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _progress_bar(fraction, width=24):
+    fraction = min(1.0, max(0.0, fraction))
+    filled = int(round(width * fraction))
+    return "\u2588" * filled + "\u2591" * (width - filled)
+
+
+def _print_video_progress(label, current, total, done=False):
+    total = max(total, 0.001)
+    current = min(max(current, 0.0), total)
+    fraction = current / total
+    columns = shutil.get_terminal_size((100, 20)).columns
+    bar_width = max(12, min(28, columns - len(label) - 42))
+    bar = _progress_bar(fraction, bar_width)
+    pct = int(round(fraction * 100))
+    time_text = f"{_format_progress_time(current)}/{_format_progress_time(total)}"
+    line = (
+        f"  {C.dim(label)} "
+        f"[{C.rgb(232, 114, 42, bar)}] "
+        f"{pct:3d}% {C.dim(time_text)}"
+    )
+    print(f"\r{line}\033[K", end="\n" if done else "", flush=True)
+
+
+def _run_ffmpeg_with_progress(cmd, progress_label, progress_total):
+    process = subprocess.Popen(
+        _ffmpeg_progress_cmd(cmd),
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    last_current = 0.0
+    completed = False
+    _print_video_progress(progress_label, 0.0, progress_total)
+    try:
+        for line in process.stdout or []:
+            line = line.strip()
+            if not line or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            if key == "out_time_ms":
+                try:
+                    last_current = int(value) / 1_000_000
+                except ValueError:
+                    continue
+                _print_video_progress(progress_label, last_current, progress_total)
+            elif key == "progress" and value == "end":
+                _print_video_progress(progress_label, progress_total, progress_total, done=True)
+                completed = True
+        returncode = process.wait()
+        stderr = process.stderr.read() if process.stderr else ""
+    except KeyboardInterrupt:
+        process.terminate()
+        raise
+    if returncode == 0:
+        if not completed:
+            _print_video_progress(progress_label, progress_total, progress_total, done=True)
+        return subprocess.CompletedProcess(cmd, returncode, "", stderr)
+    print()
+    return subprocess.CompletedProcess(cmd, returncode, "", stderr)
+
+
+def _run_ffmpeg(cmd, fallback_cmd=None, progress_label=None, progress_total=None):
+    if progress_label and progress_total and sys.stdout.isatty():
+        result = _run_ffmpeg_with_progress(cmd, progress_label, progress_total)
+    else:
+        result = subprocess.run(cmd, text=True, capture_output=True)
     if result.returncode == 0:
         return result
     if fallback_cmd is not None:
-        fallback = subprocess.run(fallback_cmd, text=True, capture_output=True)
+        fallback_label = f"{progress_label} (software)" if progress_label else None
+        if fallback_label and progress_total and sys.stdout.isatty():
+            fallback = _run_ffmpeg_with_progress(fallback_cmd, fallback_label, progress_total)
+        else:
+            fallback = subprocess.run(fallback_cmd, text=True, capture_output=True)
         if fallback.returncode == 0:
             return fallback
         raise RuntimeError(fallback.stderr.strip() or fallback.stdout.strip() or "ffmpeg failed")
     raise RuntimeError(result.stderr.strip() or result.stdout.strip() or "ffmpeg failed")
 
 
-def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_output=False):
+def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_output=False, progress_label=None):
     ensure_output_dir(out_path.parent)
     inputs = ["-i", str(src_path)]
     mask_index = None
@@ -1324,7 +1487,12 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
         ]
         fallback_cmd = base_cmd + fallback_tail
 
-    _run_ffmpeg(cmd, fallback_cmd=fallback_cmd)
+    _run_ffmpeg(
+        cmd,
+        fallback_cmd=fallback_cmd,
+        progress_label=progress_label,
+        progress_total=video_meta["duration"],
+    )
 
 
 def compute_video_merge_layout(items, spacing, no_scale=False):
@@ -1367,7 +1535,7 @@ def compute_video_merge_layout(items, spacing, no_scale=False):
     return total_width, max_height, frames
 
 
-def render_merged_video(items, out_path, args):
+def render_merged_video(items, out_path, args, progress_label=None):
     ensure_output_dir(out_path.parent)
     width, height, layout = compute_video_merge_layout(items, args.spacing, no_scale=args.no_scale)
     total_duration = (
@@ -1449,7 +1617,7 @@ def render_merged_video(items, out_path, args):
         "-movflags", "+faststart",
         str(out_path),
     ]
-    _run_ffmpeg(cmd)
+    _run_ffmpeg(cmd, progress_label=progress_label, progress_total=total_duration)
 
     for item, frame in zip(items, layout):
         item["info"]["scale_factor"] = frame["scale_factor"]
@@ -1554,13 +1722,23 @@ def cmd_video(args):
                 tmp_dir = Path(tmp)
                 for idx, item in enumerate(items):
                     tmp_path = tmp_dir / f"framed_{idx}{_video_extension(args)}"
-                    if not args.json:
+                    progress_label = f"Framing {item['src'].name}" if not args.json else None
+                    if not args.json and not sys.stdout.isatty():
                         print(f"  {C.dim('Framing')} {item['src'].name}...", end=" ", flush=True)
-                    render_framed_video(item["src"], tmp_path, item["frame_meta"], item["video_meta"], args, temp_output=True)
+                    render_framed_video(
+                        item["src"],
+                        tmp_path,
+                        item["frame_meta"],
+                        item["video_meta"],
+                        args,
+                        temp_output=True,
+                        progress_label=progress_label,
+                    )
                     item["temp_path"] = tmp_path
                     if not args.json:
-                        print(C.green(item["info"]["device"]))
-                merge_info = render_merged_video(items, out_path, args)
+                        print(f"  {C.green('✓')} {item['info']['device']}")
+                merge_label = "Merging videos" if not args.json else None
+                merge_info = render_merged_video(items, out_path, args, progress_label=merge_label)
             for item in items:
                 item["info"]["output"] = str(out_path)
             result_json = {
@@ -1587,13 +1765,21 @@ def cmd_video(args):
     for item in items:
         out_path = _video_output_path(item["src"], args, multiple=multiple)
         try:
-            if not args.json:
+            progress_label = f"Framing {item['src'].name}" if not args.json else None
+            if not args.json and not sys.stdout.isatty():
                 print(f"  {C.dim('Framing')} {item['src'].name}...", end=" ", flush=True)
-            render_framed_video(item["src"], out_path, item["frame_meta"], item["video_meta"], args)
+            render_framed_video(
+                item["src"],
+                out_path,
+                item["frame_meta"],
+                item["video_meta"],
+                args,
+                progress_label=progress_label,
+            )
             item["info"]["output"] = str(out_path)
             outputs.append(item["info"])
             if not args.json:
-                print(f"{C.green(item['info']['device'])}")
+                print(f"  {C.green('✓')} {item['info']['device']}")
                 print(f"  {C.dim('→')} {C.bold(str(out_path))}")
         except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
@@ -2109,6 +2295,7 @@ def cmd_setup(args):
     print(f"  {C.bold('Devices:')}     {device_count}")
     print(f"  {C.bold('Subfolder:')}   {'on' if subfolder_status else 'off'} {C.dim('(save to /framed/ subfolder)')}")
     print(f"  {C.bold('Config:')}      {CONFIG_FILE}")
+    offer_video_tools_setup()
     print()
     print(f"  {C.dim('You can now run')} {C.cyan('frames screenshot.png')} {C.dim('from anywhere.')}")
     print()
@@ -2358,6 +2545,7 @@ def cmd_doctor(args):
     assets_dir, assets_source = resolve_assets_dir(getattr(args, "assets", None))
     config, config_error = read_config_file()
     ok, ver = check_assets_version(assets_dir)
+    video_tools_error = _video_tools_error()
 
     json_path = assets_dir / "NewFrames.json"
     png_count = len(list(assets_dir.glob("*.png"))) if assets_dir.exists() else 0
@@ -2393,6 +2581,8 @@ def cmd_doctor(args):
                 bad_default_colors.append(f"{device}: {color}")
     if bad_default_colors:
         issues.append("Some saved default colors no longer match supported device colors.")
+    if video_tools_error:
+        issues.append(f"Video tools unavailable: {video_tools_error}")
 
     if assets_source == "FRAMES_ASSETS":
         notes.append("Using FRAMES_ASSETS from the environment.")
@@ -2410,6 +2600,8 @@ def cmd_doctor(args):
         next_steps.append("Run `frames setup` to re-download or re-point your assets.")
     if bad_default_colors:
         next_steps.append("Run `frames colors` to save fresh defaults, or remove stale entries from config.")
+    if video_tools_error:
+        next_steps.append(f"Install video tools: {_video_tools_install_hint(video_tools_error)}")
     if not next_steps:
         next_steps.append("No action needed.")
 
@@ -2421,6 +2613,11 @@ def cmd_doctor(args):
         "frame_pngs": png_count,
         "config_path": str(CONFIG_FILE),
         "config_present": CONFIG_FILE.exists(),
+        "video_tools": {
+            "ok": video_tools_error is None,
+            "error": video_tools_error,
+            "install": None if video_tools_error is None else _video_tools_install_hint(video_tools_error),
+        },
         "issues": issues,
         "notes": notes,
         "next_steps": next_steps,
@@ -2440,6 +2637,8 @@ def cmd_doctor(args):
     version_text = f"v{ver}" if ver is not None else "unknown"
     print(f"  {C.bold('Version:')} {version_text}")
     print(f"  {C.bold('Frame PNGs:')} {png_count}")
+    video_status = C.green("OK") if video_tools_error is None else C.yellow("Missing")
+    print(f"  {C.bold('Video tools:')} {video_status}")
     print(f"  {C.bold('Config:')} {CONFIG_FILE}")
 
     if notes:

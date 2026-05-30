@@ -9,7 +9,7 @@ Frame device screenshots and screen recordings with Apple product bezels from th
 ### Requirements
 - Python 3.8+
 - Pillow (Python imaging library)
-- ffmpeg 5.1+ and ffprobe 5.1+ for video framing
+- ffmpeg 5.1+ and ffprobe 5.1+ for video framing (`frames setup` checks this and can install ffmpeg with Homebrew on macOS)
 
 ### Option A: Clone the repo (recommended)
 
@@ -63,7 +63,7 @@ Then restart your terminal or run `source ~/.zshrc`.
 
 ### Setup
 
-The CLI will automatically detect and download Apple Frames 4 assets on first run. You can also set up manually:
+The CLI will automatically detect and download Apple Frames 4 assets on first run. Setup also checks video requirements and, on macOS, can install ffmpeg for you with Homebrew if it is missing. You can also set up manually:
 
 ```bash
 # Guided download (interactive — downloads ~40 MB from cdn.macstories.net)
@@ -97,13 +97,13 @@ frames -c random *.png
 # Assign colors per input
 frames --colors "Silver,Space Black,random" one.png two.png three.png
 
-# Frame a screen recording
+# Tip: frame a screen recording with the same auto-detected device bezel
 frames video recording.mp4
 
-# Inspect a video match without rendering
+# Tip: inspect the video match before spending time rendering
 frames --json video-info recording.mp4
 
-# Merge framed videos with left-to-right sequential playback
+# Tip: merge framed videos and play them left to right
 frames video -m --playback-offset 1.mp4 2.mp4
 
 # Frame and merge side by side
@@ -179,9 +179,11 @@ frames video --colors "Silver,random" 1.mp4 2.mp4
 frames video --strip-audio recording.mp4
 ```
 
-Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. Supported input extensions are `.mp4`, `.mov`, and `.m4v`.
+Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks for both and can install ffmpeg with Homebrew on macOS. Supported input extensions are `.mp4`, `.mov`, and `.m4v`.
 
 Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha` / ProRes output. Audio is preserved unless `--strip-audio` is passed.
+
+Interactive video renders show a live progress bar. JSON and non-interactive runs stay quiet for scripting.
 
 Common video recipes:
 

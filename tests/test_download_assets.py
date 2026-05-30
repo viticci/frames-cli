@@ -170,6 +170,34 @@ class VideoHelperTests(unittest.TestCase):
         self.assertIn("ffprobe 5.1+ is required", str(cm.exception))
         self.assertIn("found 4.4", str(cm.exception))
 
+    def test_ffmpeg_progress_cmd_enables_machine_progress(self):
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", "in.mp4", "out.mp4"]
+        progress_cmd = frames._ffmpeg_progress_cmd(cmd)
+
+        self.assertEqual(progress_cmd[:4], ["ffmpeg", "-progress", "pipe:1", "-nostats"])
+        self.assertIn("-hide_banner", progress_cmd)
+
+    def test_progress_time_formats_short_and_long_durations(self):
+        self.assertEqual(frames._format_progress_time(0.5), "0.5s")
+        self.assertEqual(frames._format_progress_time(75), "01:15")
+        self.assertEqual(frames._format_progress_time(3661), "1:01:01")
+
+    def test_run_ffmpeg_non_tty_uses_single_captured_run(self):
+        completed = frames.subprocess.CompletedProcess(["ffmpeg"], 0, stdout="", stderr="")
+        with (
+            mock.patch.object(frames.sys.stdout, "isatty", return_value=False),
+            mock.patch.object(frames.subprocess, "run", return_value=completed) as run,
+        ):
+            result = frames._run_ffmpeg(["ffmpeg", "-version"], progress_label="Framing demo.mp4", progress_total=10)
+
+        self.assertEqual(result.returncode, 0)
+        run.assert_called_once()
+
+    def test_video_tools_install_hint_uses_homebrew_on_macos(self):
+        with mock.patch.object(frames.sys, "platform", "darwin"):
+            self.assertEqual(frames._video_tools_install_hint("Missing required video tool(s): ffmpeg."), "brew install ffmpeg")
+            self.assertEqual(frames._video_tools_install_hint("ffmpeg 5.1+ is required for video framing; found 4.4."), "brew upgrade ffmpeg")
+
     def test_probe_video_parses_first_video_and_audio_stream(self):
         payload = {
             "streams": [
