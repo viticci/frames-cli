@@ -17,6 +17,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 - Use `frames video-info ...` to probe videos and resolve the matching frame metadata without rendering.
 - Video framing requires external `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks this and can offer a Homebrew install on macOS; `frames doctor` reports video tool readiness.
 - `frames video` preserves single-video audio by default. Pass `--strip-audio` when the user asks for silent output, privacy-safe delivery, or validation clips where audio does not matter.
+- `frames video --preset compact|balanced|best` controls MP4 export size/quality; `best` is the default. Video exports report output file size and source-vs-output savings in human and JSON output.
 
 ## Quick Reference
 
@@ -36,6 +37,9 @@ frames --colors "Silver,Space Black,random" one.png two.png three.png
 frames video-info recording.mp4
 frames --json video-info recording.mp4
 frames video recording.mp4
+frames video --preset compact recording.mp4
+frames video --preset balanced recording.mp4
+frames video --preset best recording.mp4
 frames --json video --strip-audio recording.mp4
 frames video --strip-audio recording.mp4
 frames video --background "#f5f5f5" --codec hevc recording.mp4
@@ -89,6 +93,8 @@ frames setup /path/to/Frames
 - Apply masks when the asset entry requires clipping.
 - Merge multiple framed outputs with physical-size normalization by default.
 - Frame `.mp4`, `.mov`, and `.m4v` files through `frames video`; single-video audio is preserved unless `--strip-audio` is passed.
+- Use `--preset compact`, `--preset balanced`, or `--preset best` to tune MP4 export size/quality. `best` is the default.
+- Report output file size and savings after video export in both human output and `--json` agent output.
 - Show a live terminal progress bar during video renders in interactive mode; JSON and non-TTY runs stay pipeline-friendly.
 - Inspect video/device matches without rendering through `frames video-info`.
 - Merge videos simultaneously with `frames video -m`, or sequentially left-to-right with `frames video -m --playback-offset`.
@@ -127,7 +133,8 @@ frames setup /path/to/Frames
 - Single-video output preserves audio unless `--strip-audio` is passed. Sequential `--playback-offset` merges concatenate audio and generate silence for inputs without audio. Simultaneous merges omit mixed audio in this version.
 - `--background` accepts only `white`, `black`, `transparent`, or `#RRGGBB`. `transparent` implies alpha/ProRes MOV output.
 - `--codec h264` is the default. `--codec hevc` is smaller but may be slower or less compatible. Use `--codec prores` or `--alpha` for transparent `.mov`.
-- `--quality N` controls software CRF encoders; lower is higher quality. The default is `18`.
+- `--preset compact|balanced|best` controls H.264/HEVC hardware bitrate and software CRF. `best` is the default; `balanced` and `compact` trade quality for smaller files. ProRes/alpha output keeps ProRes settings.
+- `--quality N` is an expert software CRF override; lower is higher quality.
 - `--color random` randomizes independently per input. `--colors "A,B,random"` maps values to expanded inputs by order and the count must match after directory expansion.
 - `video-info` accepts `--device`, `--color`, and `--colors`; it uses the same resolution rules as `frames video`.
 - Taildrop or other delivery is separate from `frames`; render first, verify the output, then use the delivery workflow the user requested.
@@ -142,8 +149,8 @@ frames setup /path/to/Frames
 - `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`.
 - `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `resize_width`, and `mask_missing`.
 - `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
-- `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs.
-- `frames --json video -m ...` returns `merged`, `duration`, `dimensions`, `playback_offset`, audio state, and per-input `frames`.
+- `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs, including `preset`, `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent`.
+- `frames --json video -m ...` returns `merged`, `duration`, `dimensions`, `playback_offset`, audio state, top-level output size/savings fields, and per-input `frames`.
 
 ## Assets and Config
 

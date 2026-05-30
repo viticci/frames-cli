@@ -46,6 +46,27 @@ LARGE_IMAGE_MAX_DIMENSION = 50000
 VALID_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".tiff", ".webp"}
 VALID_VIDEO_EXTS = {".mp4", ".mov", ".m4v"}
 MIN_FFMPEG_VERSION = (5, 1)
+DEFAULT_VIDEO_PRESET = "best"
+VIDEO_PRESETS = {
+    "compact": {
+        "h264_bitrate": "6M",
+        "hevc_bitrate": "4M",
+        "h264_crf": 24,
+        "hevc_crf": 28,
+    },
+    "balanced": {
+        "h264_bitrate": "10M",
+        "hevc_bitrate": "7M",
+        "h264_crf": 20,
+        "hevc_crf": 24,
+    },
+    "best": {
+        "h264_bitrate": "16M",
+        "hevc_bitrate": "10M",
+        "h264_crf": 18,
+        "hevc_crf": 20,
+    },
+}
 
 
 def get_shortcuts_assets_dir(home=None):
@@ -1311,17 +1332,78 @@ def resolve_frame_metadata(
     }
 
 
+def _video_preset(args):
+    return getattr(args, "preset", DEFAULT_VIDEO_PRESET) or DEFAULT_VIDEO_PRESET
+
+
+def _video_crf(args, codec):
+    if getattr(args, "quality", None) is not None:
+        return args.quality
+    preset = VIDEO_PRESETS[_video_preset(args)]
+    return preset["hevc_crf" if codec == "hevc" else "h264_crf"]
+
+
 def _encoder_args(args, use_hardware=True, prefer_software=False):
     codec = "prores" if _output_uses_alpha(args) else args.codec
+    preset = VIDEO_PRESETS[_video_preset(args)]
     if codec == "prores":
         return ["-c:v", "prores_ks", "-profile:v", "4", "-pix_fmt", "yuva444p10le"], False
     if codec == "hevc":
         if sys.platform == "darwin" and use_hardware and not prefer_software and shutil.which("ffmpeg"):
-            return ["-c:v", "hevc_videotoolbox", "-b:v", "10M"], True
-        return ["-c:v", "libx265", "-crf", str(args.quality), "-preset", "veryfast"], False
+            return ["-c:v", "hevc_videotoolbox", "-b:v", preset["hevc_bitrate"]], True
+        return ["-c:v", "libx265", "-crf", str(_video_crf(args, "hevc")), "-preset", "veryfast"], False
     if sys.platform == "darwin" and use_hardware and not prefer_software and shutil.which("ffmpeg"):
-        return ["-c:v", "h264_videotoolbox", "-b:v", "12M", "-profile:v", "high"], True
-    return ["-c:v", "libx264", "-crf", str(args.quality), "-preset", "veryfast"], False
+        return ["-c:v", "h264_videotoolbox", "-b:v", preset["h264_bitrate"], "-profile:v", "high"], True
+    return ["-c:v", "libx264", "-crf", str(_video_crf(args, "h264")), "-preset", "veryfast"], False
+
+
+def _format_bytes(num_bytes):
+    if num_bytes is None:
+        return None
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            if unit == "B":
+                return f"{int(size)} B"
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+
+def _format_signed_bytes(num_bytes):
+    if num_bytes is None:
+        return None
+    sign = "-" if num_bytes < 0 else ""
+    return sign + _format_bytes(abs(num_bytes))
+
+
+def _video_size_metrics(source_paths, out_path):
+    sources = [Path(p) for p in source_paths]
+    source_size = sum(p.stat().st_size for p in sources)
+    output_size = Path(out_path).stat().st_size
+    savings = source_size - output_size
+    savings_percent = (savings / source_size * 100) if source_size else 0.0
+    return {
+        "source_size_bytes": source_size,
+        "source_size": _format_bytes(source_size),
+        "output_size_bytes": output_size,
+        "output_size": _format_bytes(output_size),
+        "savings_bytes": savings,
+        "savings": _format_signed_bytes(savings),
+        "savings_percent": round(savings_percent, 2),
+    }
+
+
+def _add_video_size_metrics(info, source_paths, out_path):
+    info.update(_video_size_metrics(source_paths, out_path))
+    return info
+
+
+def _video_size_line(metrics):
+    return (
+        f"  {C.dim('Size')} {C.bold(metrics['output_size'])} "
+        f"{C.dim('(source')} {metrics['source_size']}{C.dim(', savings')} "
+        f"{metrics['savings']} / {metrics['savings_percent']:.1f}%{C.dim(')')}"
+    )
 
 
 def _ffmpeg_progress_cmd(cmd):
@@ -1637,7 +1719,7 @@ def cmd_video(args):
         _background_color(args.background)
         if args.spacing < 0:
             raise ValueError("--spacing must be 0 or greater.")
-        if args.quality < 0 or args.quality > 51:
+        if args.quality is not None and (args.quality < 0 or args.quality > 51):
             raise ValueError("--quality must be between 0 and 51.")
     except (RuntimeError, ValueError) as e:
         print(f"{C.red('Error')}: {e}", file=sys.stderr)
@@ -1692,6 +1774,8 @@ def cmd_video(args):
                 "audio": video_meta["audio"] and not args.strip_audio,
                 "audio_stripped": bool(args.strip_audio),
                 "background": args.background,
+                "preset": _video_preset(args),
+                "quality": args.quality,
                 "alpha": _output_uses_alpha(args),
                 "resized": bool(frame_meta["resize_width"]),
                 "masked": frame_meta["has_mask"] and not frame_meta["mask_missing"],
@@ -1739,6 +1823,7 @@ def cmd_video(args):
                         print(f"  {C.green('✓')} {item['info']['device']}")
                 merge_label = "Merging videos" if not args.json else None
                 merge_info = render_merged_video(items, out_path, args, progress_label=merge_label)
+                merge_metrics = _video_size_metrics(expanded, out_path)
             for item in items:
                 item["info"]["output"] = str(out_path)
             result_json = {
@@ -1749,12 +1834,15 @@ def cmd_video(args):
                 "playback_offset": bool(args.playback_offset),
                 "audio": not args.strip_audio and bool(args.playback_offset),
                 "audio_stripped": bool(args.strip_audio),
+                "preset": _video_preset(args),
                 "frames": [item["info"] for item in items],
             }
+            result_json.update(merge_metrics)
             if args.json:
                 print(json.dumps(result_json, indent=2))
             else:
                 print(f"\n  {C.green('Merged')} {len(items)} videos → {C.bold(str(out_path))}")
+                print(_video_size_line(result_json))
         except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
             sys.exit(1)
@@ -1777,10 +1865,12 @@ def cmd_video(args):
                 progress_label=progress_label,
             )
             item["info"]["output"] = str(out_path)
+            _add_video_size_metrics(item["info"], [item["src"]], out_path)
             outputs.append(item["info"])
             if not args.json:
                 print(f"  {C.green('✓')} {item['info']['device']}")
                 print(f"  {C.dim('→')} {C.bold(str(out_path))}")
+                print(_video_size_line(item["info"]))
         except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
             sys.exit(1)
@@ -2707,8 +2797,12 @@ def build_parser():
         "Video requirements: ffmpeg 5.1+ and ffprobe 5.1+ must be on PATH.\n"
         "Audio: single videos preserve audio unless --strip-audio is used; "
         "simultaneous merges omit mixed audio; --playback-offset concatenates audio.\n"
+        "Presets: best is the default; balanced and compact reduce bitrate/CRF for smaller MP4s.\n"
         "Examples:\n"
         "  frames video recording.mp4\n"
+        "  frames video --preset compact recording.mp4\n"
+        "  frames video --preset balanced recording.mp4\n"
+        "  frames video --preset best recording.mp4\n"
         "  frames --json video --strip-audio recording.mp4\n"
         "  frames video -m 1.mp4 2.mp4\n"
         "  frames video -m --playback-offset 1.mp4 2.mp4\n"
@@ -2731,7 +2825,8 @@ def build_parser():
     video_p.add_argument("--background", default="white", help="white, black, transparent, or #RRGGBB")
     video_p.add_argument("--codec", choices=("h264", "hevc", "prores"), default="h264", help="Output video codec")
     video_p.add_argument("--alpha", action="store_true", help="Output transparent ProRes MOV")
-    video_p.add_argument("--quality", type=int, default=18, help="Software encoder CRF quality (default: 18)")
+    video_p.add_argument("--preset", choices=tuple(VIDEO_PRESETS), default=DEFAULT_VIDEO_PRESET, help="Video export preset: compact, balanced, or best (default: best)")
+    video_p.add_argument("--quality", type=int, default=None, help="Expert software encoder CRF override; lower is higher quality")
     video_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
     video_p.add_argument("--no-scale", action="store_true", help="Disable proportional scaling when merging different devices")
     video_p.add_argument("--output", "-o", help="Output directory or single output file")

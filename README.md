@@ -100,6 +100,11 @@ frames --colors "Silver,Space Black,random" one.png two.png three.png
 # Tip: frame a screen recording with the same auto-detected device bezel
 frames video recording.mp4
 
+# Tip: tune MP4 export size/quality; best is the default
+frames video --preset compact recording.mp4
+frames video --preset balanced recording.mp4
+frames video --preset best recording.mp4
+
 # Tip: inspect the video match before spending time rendering
 frames --json video-info recording.mp4
 
@@ -177,13 +182,18 @@ frames video recording.mp4
 frames video -c Silver recording.mp4
 frames video --colors "Silver,random" 1.mp4 2.mp4
 frames video --strip-audio recording.mp4
+frames video --preset compact recording.mp4
+frames video --preset balanced recording.mp4
+frames video --preset best recording.mp4
 ```
 
 Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks for both and can install ffmpeg with Homebrew on macOS. Supported input extensions are `.mp4`, `.mov`, and `.m4v`.
 
 Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha` / ProRes output. Audio is preserved unless `--strip-audio` is passed.
 
-Interactive video renders show a live progress bar. JSON and non-interactive runs stay quiet for scripting.
+Interactive video renders show a live progress bar. JSON and non-interactive runs stay quiet for scripting. Completed video exports report output size and source-vs-output savings in both human output and JSON.
+
+Video presets tune MP4 export size and quality. `best` is the default. `balanced` and `compact` lower H.264/HEVC bitrate for hardware encoding and use higher CRF values for software encoding. `--quality N` remains an expert CRF override for software encoders only; lower is higher quality.
 
 Common video recipes:
 
@@ -191,6 +201,9 @@ Common video recipes:
 | --- | --- |
 | Check the match before rendering | `frames --json video-info recording.mp4` |
 | Frame one video | `frames video recording.mp4` |
+| Use compact MP4 export | `frames video --preset compact recording.mp4` |
+| Use balanced MP4 export | `frames video --preset balanced recording.mp4` |
+| Use best MP4 export | `frames video --preset best recording.mp4` |
 | Frame silently | `frames video --strip-audio recording.mp4` |
 | Merge videos simultaneously | `frames video -m 1.mp4 2.mp4` |
 | Play merged videos left to right | `frames video -m --playback-offset 1.mp4 2.mp4` |
@@ -203,6 +216,9 @@ frames video --alpha recording.mp4
 
 # HEVC output
 frames video --codec hevc recording.mp4
+
+# Compact HEVC output
+frames video --codec hevc --preset compact recording.mp4
 
 # Custom background
 frames video --background "#f5f5f5" recording.mp4
@@ -240,6 +256,10 @@ frames --json video-info --colors "Silver,random" 1.mp4 2.mp4
 ```
 
 `video-info` uses the same device, variant, color, ffmpeg, and ffprobe checks as `frames video`. It reports dimensions, duration, fps, codec, audio state, matched device, selected color, frame size, mask state, and resize metadata.
+
+`frames video --preset compact|balanced|best` controls MP4 export size/quality. `best` is the default. Presets affect H.264 and HEVC bitrate for hardware encoders and CRF for software encoders; ProRes/alpha output keeps ProRes settings. `--quality N` is still available as a software CRF override.
+
+`frames --json video ...` returns the selected `preset` plus `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent` after export. Merged JSON output includes the same top-level size and savings fields.
 
 ---
 

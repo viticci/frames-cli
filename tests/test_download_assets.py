@@ -347,6 +347,56 @@ class VideoHelperTests(unittest.TestCase):
         self.assertEqual(args.colors, "Silver,random")
         self.assertEqual(args.files, ["a.mp4", "b.mp4"])
 
+    def test_video_parser_defaults_to_best_preset(self):
+        parser = frames.build_parser()
+        args = parser.parse_args(["video", "demo.mp4"])
+
+        self.assertEqual(args.preset, "best")
+        self.assertIsNone(args.quality)
+
+    def test_video_presets_drive_hardware_bitrates(self):
+        args = Namespace(alpha=False, codec="h264", background="white", preset="compact", quality=None)
+
+        with (
+            mock.patch.object(frames.sys, "platform", "darwin"),
+            mock.patch.object(frames.shutil, "which", return_value="/usr/bin/ffmpeg"),
+        ):
+            enc_args, used_hw = frames._encoder_args(args)
+
+        self.assertTrue(used_hw)
+        self.assertEqual(enc_args, ["-c:v", "h264_videotoolbox", "-b:v", "6M", "-profile:v", "high"])
+
+    def test_video_presets_drive_software_crf(self):
+        args = Namespace(alpha=False, codec="h264", background="white", preset="best", quality=None)
+
+        enc_args, used_hw = frames._encoder_args(args, use_hardware=False, prefer_software=True)
+
+        self.assertFalse(used_hw)
+        self.assertEqual(enc_args, ["-c:v", "libx264", "-crf", "18", "-preset", "veryfast"])
+
+    def test_quality_overrides_preset_for_software_crf(self):
+        args = Namespace(alpha=False, codec="hevc", background="white", preset="compact", quality=17)
+
+        enc_args, used_hw = frames._encoder_args(args, use_hardware=False, prefer_software=True)
+
+        self.assertFalse(used_hw)
+        self.assertEqual(enc_args, ["-c:v", "libx265", "-crf", "17", "-preset", "veryfast"])
+
+    def test_video_size_metrics_reports_savings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            source = root / "source.mp4"
+            output = root / "output.mp4"
+            source.write_bytes(b"x" * 1000)
+            output.write_bytes(b"x" * 600)
+
+            metrics = frames._video_size_metrics([source], output)
+
+        self.assertEqual(metrics["source_size_bytes"], 1000)
+        self.assertEqual(metrics["output_size_bytes"], 600)
+        self.assertEqual(metrics["savings_bytes"], 400)
+        self.assertEqual(metrics["savings_percent"], 40.0)
+
     def test_video_path_gathering_is_top_level_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
