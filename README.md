@@ -185,11 +185,15 @@ frames video --strip-audio recording.mp4
 frames video --preset compact recording.mp4
 frames video --preset balanced recording.mp4
 frames video --preset best recording.mp4
+frames video -m --alpha 1.mp4 2.mp4
+frames video -m --background transparent 1.mp4 2.mp4
 ```
 
 Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks for both and can install ffmpeg with Homebrew on macOS. Supported input extensions are `.mp4`, `.mov`, and `.m4v`.
 
-Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha` / ProRes output. Audio is preserved unless `--strip-audio` is passed.
+Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha`, `--codec prores`, or `--background transparent`. Audio is preserved unless `--strip-audio` is passed.
+
+Use `--alpha` or `--background transparent` to create transparent ProRes 4444 `.mov` output. This works for single videos and merged videos. `--alpha` defaults the canvas to transparent unless you explicitly pass another `--background`; MP4/H.264 and MP4/HEVC outputs do not support alpha. If you pass an explicit output file for transparent output, it must use a `.mov` extension.
 
 Interactive video renders show a live progress bar. JSON and non-interactive runs stay quiet for scripting. Completed video exports report output size and source-vs-output savings in both human output and JSON.
 
@@ -209,10 +213,16 @@ Common video recipes:
 | Play merged videos left to right | `frames video -m --playback-offset 1.mp4 2.mp4` |
 | Assign per-input colors | `frames video --colors "Silver,random" 1.mp4 2.mp4` |
 | Transparent ProRes MOV | `frames video --alpha recording.mp4` |
+| Transparent merged ProRes MOV | `frames video -m --alpha 1.mp4 2.mp4` |
+| Transparent merged canvas | `frames video -m --background transparent 1.mp4 2.mp4` |
 
 ```bash
 # Transparent ProRes MOV
 frames video --alpha recording.mp4
+
+# Transparent merged ProRes MOV
+frames video -m --alpha 1.mp4 2.mp4
+frames video -m --background transparent 1.mp4 2.mp4
 
 # HEVC output
 frames video --codec hevc recording.mp4
@@ -231,6 +241,8 @@ Merge multiple framed videos into a horizontal canvas. By default, videos play s
 ```bash
 frames video -m 1.mp4 2.mp4
 frames video -m --no-scale 1.mp4 2.mp4
+frames video -m --alpha 1.mp4 2.mp4
+frames video -m --background transparent 1.mp4 2.mp4
 ```
 
 When merging different devices, videos are proportionally scaled using the same physical-height model as image merges and bottom-aligned.
@@ -242,6 +254,8 @@ frames video -m --playback-offset 1.mp4 2.mp4
 ```
 
 With `--playback-offset`, audio is concatenated sequentially and videos without audio contribute silence. Simultaneous video merges omit mixed audio in this version.
+
+Transparent merges output `.mov` using ProRes 4444 with `yuva444p10le` pixels. Use this when you want the merged devices floating over transparency for Final Cut Pro, Keynote, or another compositor.
 
 ---
 
@@ -258,6 +272,8 @@ frames --json video-info --colors "Silver,random" 1.mp4 2.mp4
 `video-info` uses the same device, variant, color, ffmpeg, and ffprobe checks as `frames video`. It reports dimensions, duration, fps, codec, audio state, matched device, selected color, frame size, mask state, and resize metadata.
 
 `frames video --preset compact|balanced|best` controls MP4 export size/quality. `best` is the default. Presets affect H.264 and HEVC bitrate for hardware encoders and CRF for software encoders; ProRes/alpha output keeps ProRes settings. `--quality N` is still available as a software CRF override.
+
+`frames video --alpha ...` and `frames video --background transparent ...` return transparent ProRes `.mov` output. In JSON, `alpha` is `true` and `background` is `transparent` unless an explicit opaque background is provided.
 
 `frames --json video ...` returns the selected `preset` plus `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent` after export. Merged JSON output includes the same top-level size and savings fields.
 

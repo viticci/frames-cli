@@ -1180,8 +1180,15 @@ def _background_color(value):
     raise ValueError("--background must be white, black, transparent, or #RRGGBB.")
 
 
+def _video_background(args):
+    background = getattr(args, "background", None)
+    if background is not None:
+        return background
+    return "transparent" if getattr(args, "alpha", False) else "white"
+
+
 def _output_uses_alpha(args):
-    return bool(args.alpha or args.codec == "prores" or args.background == "transparent")
+    return bool(args.alpha or args.codec == "prores" or _video_background(args) == "transparent")
 
 
 def _video_extension(args):
@@ -1199,6 +1206,17 @@ def _video_output_path(src_path, args, default_name=None, multiple=False):
     if default_name:
         return src_path.parent / default_name
     return src_path.parent / f"{src_path.stem}_framed{ext}"
+
+
+def _validate_video_output_args(args, input_count):
+    if not args.output:
+        return None
+    output = Path(args.output)
+    if output.suffix and input_count > 1 and not args.merge:
+        return "--output can be a file only when framing one video."
+    if output.suffix and _output_uses_alpha(args) and output.suffix.lower() != ".mov":
+        return "Transparent/ProRes video output requires a .mov output file."
+    return None
 
 
 def _gather_video_paths(paths):
@@ -1530,7 +1548,7 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
         filters.append("[v0][m0]alphamerge[vm]")
         video_label = "vm"
 
-    background = _background_color(args.background)
+    background = _background_color(_video_background(args))
     canvas = (
         f"color=c={background}:s={frame_meta['frame_width']}x{frame_meta['frame_height']}:"
         f"r={_normalize_rate(video_meta['fps_rate'])}:d={video_meta['duration']}"
@@ -1539,7 +1557,8 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
         canvas += ",format=rgba"
     canvas += "[base]"
     filters.append(canvas)
-    filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}[tmp]")
+    overlay_format = ":format=auto" if _output_uses_alpha(args) else ""
+    filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}{overlay_format}[tmp]")
     out_format = "yuva444p10le" if _output_uses_alpha(args) else "yuv420p"
     filters.append(f"[tmp][{frame_index}:v]overlay=0:0:format=auto,format={out_format}[out]")
 
@@ -1631,7 +1650,11 @@ def render_merged_video(items, out_path, args, progress_label=None):
         input_args += ["-i", str(item["temp_path"])]
 
     filters = []
-    overlay_chain = f"color=c={_background_color(args.background)}:s={width}x{height}:r=30:d={total_duration}[base]"
+    uses_alpha = _output_uses_alpha(args)
+    overlay_chain = f"color=c={_background_color(_video_background(args))}:s={width}x{height}:r=30:d={total_duration}"
+    if uses_alpha:
+        overlay_chain += ",format=rgba"
+    overlay_chain += "[base]"
     filters.append(overlay_chain)
     current = "base"
     elapsed = 0.0
@@ -1646,6 +1669,8 @@ def render_merged_video(items, out_path, args, progress_label=None):
             stop_pad = max(0.0, total_duration - duration)
 
         chain = f"[{idx}:v]fps=30,setpts=PTS-STARTPTS"
+        if uses_alpha:
+            chain += ",format=rgba"
         if frame["width"] != item["frame_meta"]["frame_width"] or frame["height"] != item["frame_meta"]["frame_height"]:
             chain += f",scale={frame['width']}:{frame['height']}"
         tpad_args = []
@@ -1659,10 +1684,12 @@ def render_merged_video(items, out_path, args, progress_label=None):
         filters.append(chain)
 
         next_label = "outv" if idx == len(items) - 1 else f"tmp{idx}"
-        filters.append(f"[{current}][v{idx}]overlay={frame['x']}:{frame['y']}[{next_label}]")
+        overlay_format = ":format=auto" if uses_alpha else ""
+        filters.append(f"[{current}][v{idx}]overlay={frame['x']}:{frame['y']}{overlay_format}[{next_label}]")
         current = next_label
 
-    filters.append(f"[{current}]format=yuv420p[out]")
+    out_format = "yuva444p10le" if uses_alpha else "yuv420p"
+    filters.append(f"[{current}]format={out_format}[out]")
 
     map_args = ["-map", "[out]"]
     audio_filters = []
@@ -1716,7 +1743,7 @@ def cmd_video(args):
     try:
         require_ffmpeg_tools()
         validate_color_args(args)
-        _background_color(args.background)
+        _background_color(_video_background(args))
         if args.spacing < 0:
             raise ValueError("--spacing must be 0 or greater.")
         if args.quality is not None and (args.quality < 0 or args.quality > 51):
@@ -1735,8 +1762,9 @@ def cmd_video(args):
     if not expanded:
         print(f"{C.red('Error')}: No videos found in the specified paths.", file=sys.stderr)
         sys.exit(1)
-    if args.output and Path(args.output).suffix and len(expanded) > 1 and not args.merge:
-        print(f"{C.red('Error')}: --output can be a file only when framing one video.", file=sys.stderr)
+    output_error = _validate_video_output_args(args, len(expanded))
+    if output_error:
+        print(f"{C.red('Error')}: {output_error}", file=sys.stderr)
         sys.exit(1)
     try:
         color_values = parse_per_input_colors(getattr(args, "colors", None), len(expanded))
@@ -1773,7 +1801,7 @@ def cmd_video(args):
                 "codec": video_meta["codec"],
                 "audio": video_meta["audio"] and not args.strip_audio,
                 "audio_stripped": bool(args.strip_audio),
-                "background": args.background,
+                "background": _video_background(args),
                 "preset": _video_preset(args),
                 "quality": args.quality,
                 "alpha": _output_uses_alpha(args),
@@ -2797,6 +2825,7 @@ def build_parser():
         "Video requirements: ffmpeg 5.1+ and ffprobe 5.1+ must be on PATH.\n"
         "Audio: single videos preserve audio unless --strip-audio is used; "
         "simultaneous merges omit mixed audio; --playback-offset concatenates audio.\n"
+        "Alpha: --alpha or --background transparent writes transparent ProRes MOV, including merged videos.\n"
         "Presets: best is the default; balanced and compact reduce bitrate/CRF for smaller MP4s.\n"
         "Examples:\n"
         "  frames video recording.mp4\n"
@@ -2804,7 +2833,8 @@ def build_parser():
         "  frames video --preset balanced recording.mp4\n"
         "  frames video --preset best recording.mp4\n"
         "  frames --json video --strip-audio recording.mp4\n"
-        "  frames video -m 1.mp4 2.mp4\n"
+        "  frames video -m --alpha 1.mp4 2.mp4\n"
+        "  frames video -m --background transparent 1.mp4 2.mp4\n"
         "  frames video -m --playback-offset 1.mp4 2.mp4\n"
         "  frames video --background '#f5f5f5' --codec hevc recording.mp4\n"
         "  frames video --alpha recording.mp4"
@@ -2822,7 +2852,7 @@ def build_parser():
     video_p.add_argument("--merge", "-m", action="store_true", help="Merge framed videos side by side")
     video_p.add_argument("--playback-offset", action="store_true", help="Play merged videos sequentially left to right")
     video_p.add_argument("--strip-audio", action="store_true", help="Remove audio from output")
-    video_p.add_argument("--background", default="white", help="white, black, transparent, or #RRGGBB")
+    video_p.add_argument("--background", default=None, help="white, black, transparent, or #RRGGBB; default is white, or transparent with --alpha")
     video_p.add_argument("--codec", choices=("h264", "hevc", "prores"), default="h264", help="Output video codec")
     video_p.add_argument("--alpha", action="store_true", help="Output transparent ProRes MOV")
     video_p.add_argument("--preset", choices=tuple(VIDEO_PRESETS), default=DEFAULT_VIDEO_PRESET, help="Video export preset: compact, balanced, or best (default: best)")

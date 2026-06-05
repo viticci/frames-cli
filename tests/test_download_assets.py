@@ -353,6 +353,45 @@ class VideoHelperTests(unittest.TestCase):
 
         self.assertEqual(args.preset, "best")
         self.assertIsNone(args.quality)
+        self.assertEqual(frames._video_background(args), "white")
+
+    def test_alpha_defaults_to_transparent_background(self):
+        parser = frames.build_parser()
+        args = parser.parse_args(["video", "--alpha", "demo.mp4"])
+
+        self.assertEqual(frames._video_background(args), "transparent")
+        self.assertTrue(frames._output_uses_alpha(args))
+        self.assertEqual(frames._video_output_path(Path("/tmp/in/demo.mp4"), args), Path("/tmp/in/demo_framed.mov"))
+
+    def test_explicit_background_overrides_alpha_default(self):
+        parser = frames.build_parser()
+        args = parser.parse_args(["video", "--alpha", "--background", "white", "demo.mp4"])
+
+        self.assertEqual(frames._video_background(args), "white")
+        self.assertTrue(frames._output_uses_alpha(args))
+
+    def test_background_transparent_uses_alpha_output(self):
+        parser = frames.build_parser()
+        args = parser.parse_args(["video", "--background", "transparent", "demo.mp4"])
+
+        self.assertEqual(frames._video_background(args), "transparent")
+        self.assertTrue(frames._output_uses_alpha(args))
+        self.assertEqual(frames._video_output_path(Path("/tmp/in/demo.mp4"), args), Path("/tmp/in/demo_framed.mov"))
+
+    def test_alpha_output_rejects_explicit_mp4_path(self):
+        parser = frames.build_parser()
+        args = parser.parse_args(["video", "--alpha", "--output", "/tmp/out.mp4", "demo.mp4"])
+
+        self.assertEqual(
+            frames._validate_video_output_args(args, 1),
+            "Transparent/ProRes video output requires a .mov output file.",
+        )
+
+    def test_alpha_output_accepts_explicit_mov_path(self):
+        parser = frames.build_parser()
+        args = parser.parse_args(["video", "--alpha", "--output", "/tmp/out.mov", "demo.mp4"])
+
+        self.assertIsNone(frames._validate_video_output_args(args, 1))
 
     def test_video_presets_drive_hardware_bitrates(self):
         args = Namespace(alpha=False, codec="h264", background="white", preset="compact", quality=None)
@@ -396,6 +435,44 @@ class VideoHelperTests(unittest.TestCase):
         self.assertEqual(metrics["output_size_bytes"], 600)
         self.assertEqual(metrics["savings_bytes"], 400)
         self.assertEqual(metrics["savings_percent"], 40.0)
+
+    def test_alpha_merge_preserves_transparent_filter_output(self):
+        args = Namespace(
+            spacing=60,
+            no_scale=False,
+            playback_offset=False,
+            strip_audio=True,
+            background=None,
+            alpha=True,
+            codec="h264",
+            preset="best",
+            quality=None,
+        )
+        items = [
+            {
+                "temp_path": Path("/tmp/framed_0.mov"),
+                "video_meta": {"duration": 1.0, "audio": False},
+                "frame_meta": {"frame_width": 1350, "frame_height": 2760, "physicalHeight": 149.6},
+                "info": {},
+            },
+            {
+                "temp_path": Path("/tmp/framed_1.mov"),
+                "video_meta": {"duration": 1.0, "audio": False},
+                "frame_meta": {"frame_width": 1350, "frame_height": 2760, "physicalHeight": 149.6},
+                "info": {},
+            },
+        ]
+
+        with mock.patch.object(frames, "_run_ffmpeg") as run:
+            frames.render_merged_video(items, Path("/tmp/out.mov"), args)
+
+        cmd = run.call_args.args[0]
+        filter_complex = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("color=c=black@0.0", filter_complex)
+        self.assertIn("format=rgba", filter_complex)
+        self.assertIn("overlay=0:0:format=auto", filter_complex)
+        self.assertIn("format=yuva444p10le[out]", filter_complex)
+        self.assertIn("prores_ks", cmd)
 
     def test_video_path_gathering_is_top_level_only(self):
         with tempfile.TemporaryDirectory() as tmp:

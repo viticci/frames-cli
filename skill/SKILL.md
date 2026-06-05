@@ -18,6 +18,8 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 - Video framing requires external `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks this and can offer a Homebrew install on macOS; `frames doctor` reports video tool readiness.
 - `frames video` preserves single-video audio by default. Pass `--strip-audio` when the user asks for silent output, privacy-safe delivery, or validation clips where audio does not matter.
 - `frames video --preset compact|balanced|best` controls MP4 export size/quality; `best` is the default. Video exports report output file size and source-vs-output savings in human and JSON output.
+- Use `frames video --alpha ...` or `frames video --background transparent ...` for transparent ProRes 4444 `.mov` output. This works for single videos and merged videos; MP4/H.264 and MP4/HEVC do not support alpha.
+- Explicit transparent output file paths must use a `.mov` extension. Use an output directory when you want the CLI to pick the `.mov` filename.
 
 ## Quick Reference
 
@@ -40,6 +42,9 @@ frames video recording.mp4
 frames video --preset compact recording.mp4
 frames video --preset balanced recording.mp4
 frames video --preset best recording.mp4
+frames video --alpha recording.mp4
+frames video -m --alpha 1.mp4 2.mp4
+frames video -m --background transparent 1.mp4 2.mp4
 frames --json video --strip-audio recording.mp4
 frames video --strip-audio recording.mp4
 frames video --background "#f5f5f5" --codec hevc recording.mp4
@@ -95,6 +100,7 @@ frames setup /path/to/Frames
 - Frame `.mp4`, `.mov`, and `.m4v` files through `frames video`; single-video audio is preserved unless `--strip-audio` is passed.
 - Use `--preset compact`, `--preset balanced`, or `--preset best` to tune MP4 export size/quality. `best` is the default.
 - Report output file size and savings after video export in both human output and `--json` agent output.
+- Use `--alpha` or `--background transparent` to create transparent ProRes 4444 MOV output for single or merged videos.
 - Show a live terminal progress bar during video renders in interactive mode; JSON and non-TTY runs stay pipeline-friendly.
 - Inspect video/device matches without rendering through `frames video-info`.
 - Merge videos simultaneously with `frames video -m`, or sequentially left-to-right with `frames video -m --playback-offset`.
@@ -126,6 +132,8 @@ frames setup /path/to/Frames
 
 - `frames video-info FILE` reports dimensions, duration, fps, codec, audio state, matched device, selected color, frame size, mask state, and resize metadata without creating an output video.
 - `frames video FILE` writes `FILE_framed.mp4` by default, or `.mov` when `--alpha`, `--codec prores`, or `--background transparent` is used.
+- `--alpha` defaults the background to transparent unless the user explicitly passes another `--background`.
+- Explicit alpha/transparent output files must end in `.mov`; otherwise `frames video` fails before rendering.
 - For one video, `--output` may be an explicit output file path or a directory. For multiple individual videos, use an output directory.
 - `--merge` creates one horizontal video. Without `--playback-offset`, videos play simultaneously and duration is the longest input.
 - `--playback-offset` requires `--merge`; videos play left to right, inactive future videos hold their first frame, and completed videos hold their final frame.
@@ -133,6 +141,7 @@ frames setup /path/to/Frames
 - Single-video output preserves audio unless `--strip-audio` is passed. Sequential `--playback-offset` merges concatenate audio and generate silence for inputs without audio. Simultaneous merges omit mixed audio in this version.
 - `--background` accepts only `white`, `black`, `transparent`, or `#RRGGBB`. `transparent` implies alpha/ProRes MOV output.
 - `--codec h264` is the default. `--codec hevc` is smaller but may be slower or less compatible. Use `--codec prores` or `--alpha` for transparent `.mov`.
+- Transparent merged videos preserve alpha with ProRes 4444 (`yuva444p10le`), suitable for compositing in video editors and presentation tools.
 - `--preset compact|balanced|best` controls H.264/HEVC hardware bitrate and software CRF. `best` is the default; `balanced` and `compact` trade quality for smaller files. ProRes/alpha output keeps ProRes settings.
 - `--quality N` is an expert software CRF override; lower is higher quality.
 - `--color random` randomizes independently per input. `--colors "A,B,random"` maps values to expanded inputs by order and the count must match after directory expansion.
@@ -150,7 +159,7 @@ frames setup /path/to/Frames
 - `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `resize_width`, and `mask_missing`.
 - `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
 - `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs, including `preset`, `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent`.
-- `frames --json video -m ...` returns `merged`, `duration`, `dimensions`, `playback_offset`, audio state, top-level output size/savings fields, and per-input `frames`.
+- `frames --json video -m ...` returns `merged`, `duration`, `dimensions`, `playback_offset`, audio state, top-level output size/savings fields, and per-input `frames`. For transparent exports, `alpha` is `true` on each frame and `background` reports `transparent` unless another background was explicitly requested.
 
 ## Assets and Config
 
