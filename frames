@@ -34,7 +34,7 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
@@ -66,6 +66,12 @@ VIDEO_PRESETS = {
         "h264_crf": 18,
         "hevc_crf": 20,
     },
+}
+VIDEO_ROTATIONS = {
+    "none": None,
+    "clockwise": "transpose=1",
+    "counterclockwise": "transpose=2",
+    "180": "hflip,vflip",
 }
 
 
@@ -1191,6 +1197,60 @@ def _output_uses_alpha(args):
     return bool(args.alpha or args.codec == "prores" or _video_background(args) == "transparent")
 
 
+def _video_rotation(args):
+    return getattr(args, "rotate", "none") or "none"
+
+
+def _video_rotation_filter(rotation):
+    return VIDEO_ROTATIONS[rotation]
+
+
+def _rotated_video_meta(video_meta, rotation):
+    rotated = dict(video_meta)
+    rotated["source_width"] = video_meta["width"]
+    rotated["source_height"] = video_meta["height"]
+    rotated["source_dimensions"] = f"{video_meta['width']}x{video_meta['height']}"
+    rotated["rotation"] = rotation
+    if rotation in {"clockwise", "counterclockwise"}:
+        rotated["width"], rotated["height"] = video_meta["height"], video_meta["width"]
+    return rotated
+
+
+def _video_source_filter(args):
+    filters = []
+    rotation_filter = _video_rotation_filter(_video_rotation(args))
+    if rotation_filter:
+        filters.append(rotation_filter)
+    filters.append("format=rgba")
+    return ",".join(filters)
+
+
+def _encoded_video_dimensions(width, height, args):
+    if _output_uses_alpha(args):
+        return width, height
+    return width + (width % 2), height + (height % 2)
+
+
+def _video_pad_filter(width, height, args):
+    out_w, out_h = _encoded_video_dimensions(width, height, args)
+    if (out_w, out_h) == (width, height):
+        return None
+    return f"pad={out_w}:{out_h}:0:0:color={_background_color(_video_background(args))}"
+
+
+def _video_output_dimension_info(width, height, args=None):
+    if args is None:
+        out_w, out_h = width + (width % 2), height + (height % 2)
+    else:
+        out_w, out_h = _encoded_video_dimensions(width, height, args)
+    return {
+        "output_width": out_w,
+        "output_height": out_h,
+        "output_dimensions": f"{out_w}x{out_h}",
+        "padded": (out_w, out_h) != (width, height),
+    }
+
+
 def _video_extension(args):
     return ".mov" if _output_uses_alpha(args) else ".mp4"
 
@@ -1244,11 +1304,13 @@ def _video_info_for_path(
     color_arg=None,
     strict_color=False,
     force_device=None,
+    rotation="none",
     verbose=False,
     user_defaults=None,
     device_index=None,
 ):
-    video_meta = probe_video(path)
+    source_meta = probe_video(path)
+    video_meta = _rotated_video_meta(source_meta, rotation)
     frame_meta = resolve_frame_metadata(
         video_meta["width"],
         video_meta["height"],
@@ -1285,6 +1347,11 @@ def _video_info_for_path(
         "mask_missing": frame_meta["mask_missing"],
         "physicalHeight": frame_meta["physicalHeight"],
         "is_variant": frame_meta["is_variant"],
+        "rotation": rotation,
+        "source_width": source_meta["width"],
+        "source_height": source_meta["height"],
+        "source_dimensions": f"{source_meta['width']}x{source_meta['height']}",
+        **_video_output_dimension_info(frame_meta["frame_width"], frame_meta["frame_height"]),
     }
 
 
@@ -1532,7 +1599,7 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
     inputs += ["-loop", "1", "-i", frame_meta["frame_path"]]
 
     filters = []
-    source_chain = "[0:v]format=rgba"
+    source_chain = f"[0:v]{_video_source_filter(args)}"
     if frame_meta["resize_width"]:
         source_chain += f",scale={frame_meta['resize_width']}:{frame_meta['resize_height']}"
     source_chain += "[v0]"
@@ -1558,9 +1625,15 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
     canvas += "[base]"
     filters.append(canvas)
     overlay_format = ":format=auto" if _output_uses_alpha(args) else ""
-    filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}{overlay_format}[tmp]")
     out_format = "yuva444p10le" if _output_uses_alpha(args) else "yuv420p"
-    filters.append(f"[tmp][{frame_index}:v]overlay=0:0:format=auto,format={out_format}[out]")
+    filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}{overlay_format}[tmp]")
+    filters.append(f"[tmp][{frame_index}:v]overlay=0:0:format=auto[framed]")
+    output_filters = []
+    pad_filter = _video_pad_filter(frame_meta["frame_width"], frame_meta["frame_height"], args)
+    if pad_filter:
+        output_filters.append(pad_filter)
+    output_filters.append(f"format={out_format}")
+    filters.append(f"[framed]{','.join(output_filters)}[out]")
 
     enc_args, used_hw = _encoder_args(args, use_hardware=not temp_output, prefer_software=False)
     fallback_enc_args, _ = _encoder_args(args, use_hardware=False, prefer_software=True)
@@ -1599,9 +1672,10 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
 def compute_video_merge_layout(items, spacing, no_scale=False):
     frames = []
     for item in items:
+        info = item.get("info", {})
         frames.append({
-            "width": int(item["frame_meta"]["frame_width"]),
-            "height": int(item["frame_meta"]["frame_height"]),
+            "width": int(info.get("output_width", item["frame_meta"]["frame_width"])),
+            "height": int(info.get("output_height", item["frame_meta"]["frame_height"])),
             "physicalHeight": float(item["frame_meta"].get("physicalHeight", 0)),
         })
 
@@ -1671,7 +1745,10 @@ def render_merged_video(items, out_path, args, progress_label=None):
         chain = f"[{idx}:v]fps=30,setpts=PTS-STARTPTS"
         if uses_alpha:
             chain += ",format=rgba"
-        if frame["width"] != item["frame_meta"]["frame_width"] or frame["height"] != item["frame_meta"]["frame_height"]:
+        info = item.get("info", {})
+        source_width = int(info.get("output_width", item["frame_meta"]["frame_width"]))
+        source_height = int(info.get("output_height", item["frame_meta"]["frame_height"]))
+        if frame["width"] != source_width or frame["height"] != source_height:
             chain += f",scale={frame['width']}:{frame['height']}"
         tpad_args = []
         if start_pad > 0:
@@ -1689,7 +1766,12 @@ def render_merged_video(items, out_path, args, progress_label=None):
         current = next_label
 
     out_format = "yuva444p10le" if uses_alpha else "yuv420p"
-    filters.append(f"[{current}]format={out_format}[out]")
+    output_filters = []
+    pad_filter = _video_pad_filter(width, height, args)
+    if pad_filter:
+        output_filters.append(pad_filter)
+    output_filters.append(f"format={out_format}")
+    filters.append(f"[{current}]{','.join(output_filters)}[out]")
 
     map_args = ["-map", "[out]"]
     audio_filters = []
@@ -1728,11 +1810,12 @@ def render_merged_video(items, out_path, args, progress_label=None):
     ]
     _run_ffmpeg(cmd, progress_label=progress_label, progress_total=total_duration)
 
+    output_width, output_height = _encoded_video_dimensions(width, height, args)
     for item, frame in zip(items, layout):
         item["info"]["scale_factor"] = frame["scale_factor"]
     return {
-        "width": width,
-        "height": height,
+        "width": output_width,
+        "height": output_height,
         "duration": total_duration,
         "layout": layout,
     }
@@ -1776,7 +1859,8 @@ def cmd_video(args):
     items = []
     try:
         for idx, src in enumerate(expanded):
-            video_meta = probe_video(src)
+            source_video_meta = probe_video(src)
+            video_meta = _rotated_video_meta(source_video_meta, _video_rotation(args))
             frame_meta = resolve_frame_metadata(
                 video_meta["width"],
                 video_meta["height"],
@@ -1809,6 +1893,9 @@ def cmd_video(args):
                 "masked": frame_meta["has_mask"] and not frame_meta["mask_missing"],
                 "mask_missing": frame_meta["mask_missing"],
                 "physicalHeight": frame_meta["physicalHeight"],
+                "rotation": _video_rotation(args),
+                "source_dimensions": video_meta["source_dimensions"],
+                **_video_output_dimension_info(frame_meta["frame_width"], frame_meta["frame_height"], args),
             }
             items.append({
                 "src": src,
@@ -2590,6 +2677,7 @@ def cmd_video_info(args):
                 color_arg=color_arg_for_index(args, color_values, idx),
                 strict_color=strict_colors,
                 force_device=args.device,
+                rotation=_video_rotation(args),
                 verbose=args.verbose,
                 user_defaults=user_defaults,
                 device_index=device_index,
@@ -2620,10 +2708,14 @@ def cmd_video_info(args):
         duration = f'{r["duration"]:.2f}s'
         audio = f", audio: {r['audio_codec']}" if r.get("audio") else ", no audio"
         print(f"  {C.dim(dims)} {C.dim('•')} {duration} {C.dim('•')} {r.get('codec') or 'unknown codec'}{audio}")
+        if r.get("rotation") and r["rotation"] != "none":
+            print(f"    {C.dim('Rotated:')} {r['source_dimensions']} {C.dim('→')} {r['dimensions']} {C.dim(f'({r["rotation"]})')}")
         print(f"  {C.green('✓')} {C.bold(r['device'])}")
         if r.get("is_variant"):
             print(f"    {C.dim('Primary match:')} {r['primary_match']} {C.dim('→ variant resolved')}")
         print(f"    {C.dim('Frame size:')} {r['frame_size']}")
+        if r.get("padded"):
+            print(f"    {C.dim('Video size:')} {r['output_dimensions']} {C.dim('(padded for MP4)')}")
         if r.get("color"):
             print(f"    {C.dim('Color:')} {r['color']}")
         else:
@@ -2832,6 +2924,7 @@ def build_parser():
         "  frames video --preset compact recording.mp4\n"
         "  frames video --preset balanced recording.mp4\n"
         "  frames video --preset best recording.mp4\n"
+        "  frames video --rotate counterclockwise ipad-landscape-recording.mp4\n"
         "  frames --json video --strip-audio recording.mp4\n"
         "  frames video -m --alpha 1.mp4 2.mp4\n"
         "  frames video -m --background transparent 1.mp4 2.mp4\n"
@@ -2857,6 +2950,7 @@ def build_parser():
     video_p.add_argument("--alpha", action="store_true", help="Output transparent ProRes MOV")
     video_p.add_argument("--preset", choices=tuple(VIDEO_PRESETS), default=DEFAULT_VIDEO_PRESET, help="Video export preset: compact, balanced, or best (default: best)")
     video_p.add_argument("--quality", type=int, default=None, help="Expert software encoder CRF override; lower is higher quality")
+    video_p.add_argument("--rotate", choices=tuple(VIDEO_ROTATIONS), default="none", help="Rotate video before device detection/framing: none, clockwise, counterclockwise, or 180")
     video_p.add_argument("--spacing", "-s", type=int, default=60, help="Merge spacing in pixels (default: 60)")
     video_p.add_argument("--no-scale", action="store_true", help="Disable proportional scaling when merging different devices")
     video_p.add_argument("--output", "-o", help="Output directory or single output file")
@@ -2884,6 +2978,7 @@ def build_parser():
         "Examples:\n"
         "  frames video-info recording.mp4\n"
         "  frames --json video-info recording.mp4\n"
+        "  frames --json video-info --rotate counterclockwise ipad-landscape-recording.mp4\n"
         "  frames --json video-info --colors 'Silver,random' 1.mp4 2.mp4"
     )
     video_info_p = sub.add_parser(
@@ -2897,6 +2992,7 @@ def build_parser():
     video_info_p.add_argument("--color", "-c", help="Frame color name, index, or 'random'")
     video_info_p.add_argument("--colors", help="Comma-separated per-input colors (e.g. Silver,random)")
     video_info_p.add_argument("--device", "-d", help="Force specific device frame")
+    video_info_p.add_argument("--rotate", choices=tuple(VIDEO_ROTATIONS), default="none", help="Rotate video before device detection: none, clockwise, counterclockwise, or 180")
     video_info_p.add_argument("--json", action="store_true", dest="frame_json", help=argparse.SUPPRESS)
 
     # Setup command

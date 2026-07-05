@@ -108,6 +108,9 @@ frames video --preset best recording.mp4
 # Tip: inspect the video match before spending time rendering
 frames --json video-info recording.mp4
 
+# Tip: rotate landscape iPad screen recordings that are encoded as portrait
+frames video --rotate counterclockwise ipad-landscape-recording.mp4
+
 # Tip: merge framed videos and play them left to right
 frames video -m --playback-offset 1.mp4 2.mp4
 
@@ -185,6 +188,7 @@ frames video --strip-audio recording.mp4
 frames video --preset compact recording.mp4
 frames video --preset balanced recording.mp4
 frames video --preset best recording.mp4
+frames video --rotate counterclockwise ipad-landscape-recording.mp4
 frames video -m --alpha 1.mp4 2.mp4
 frames video -m --background transparent 1.mp4 2.mp4
 ```
@@ -193,11 +197,15 @@ Video support requires `ffmpeg` 5.1+ and `ffprobe` 5.1+. `frames setup` checks f
 
 Single-video output is `originalname_framed.mp4` by default, or `.mov` for `--alpha`, `--codec prores`, or `--background transparent`. Audio is preserved unless `--strip-audio` is passed.
 
+Some iPad screen recordings are visually landscape but encoded as portrait video frames. In that case, inspect with `frames --json video-info recording.mp4`; if the match is portrait while the content is landscape, pass `--rotate counterclockwise` or `--rotate clockwise` so Frames rotates before device detection and framing.
+
 Use `--alpha` or `--background transparent` to create transparent ProRes 4444 `.mov` output. This works for single videos and merged videos. `--alpha` defaults the canvas to transparent unless you explicitly pass another `--background`; MP4/H.264 and MP4/HEVC outputs do not support alpha. If you pass an explicit output file for transparent output, it must use a `.mov` extension.
 
 Interactive video renders show a live progress bar. JSON and non-interactive runs stay quiet for scripting. Completed video exports report output size and source-vs-output savings in both human output and JSON.
 
 Video presets tune MP4 export size and quality. `best` is the default. `balanced` and `compact` lower H.264/HEVC bitrate for hardware encoding and use higher CRF values for software encoding. `--quality N` remains an expert CRF override for software encoders only; lower is higher quality.
+
+For MP4/H.264 and MP4/HEVC output, Frames pads odd-sized Apple frame assets to even encoded dimensions instead of letting ffmpeg silently crop a row or column. JSON output reports `output_dimensions` and `padded` when this happens.
 
 Common video recipes:
 
@@ -208,6 +216,7 @@ Common video recipes:
 | Use compact MP4 export | `frames video --preset compact recording.mp4` |
 | Use balanced MP4 export | `frames video --preset balanced recording.mp4` |
 | Use best MP4 export | `frames video --preset best recording.mp4` |
+| Rotate before matching/framing | `frames video --rotate counterclockwise recording.mp4` |
 | Frame silently | `frames video --strip-audio recording.mp4` |
 | Merge videos simultaneously | `frames video -m 1.mp4 2.mp4` |
 | Play merged videos left to right | `frames video -m --playback-offset 1.mp4 2.mp4` |

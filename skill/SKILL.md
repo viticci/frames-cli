@@ -5,7 +5,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 
 # Apple Frames CLI
 
-`frames` 1.3.0 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
+`frames` 1.3.1 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
 
 ## What Agents Should Know
 
@@ -20,6 +20,8 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 - `frames video --preset compact|balanced|best` controls MP4 export size/quality; `best` is the default. Video exports report output file size and source-vs-output savings in human and JSON output.
 - Use `frames video --alpha ...` or `frames video --background transparent ...` for transparent ProRes 4444 `.mov` output. This works for single videos and merged videos; MP4/H.264 and MP4/HEVC do not support alpha.
 - Explicit transparent output file paths must use a `.mov` extension. Use an output directory when you want the CLI to pick the `.mov` filename.
+- Use `frames video --rotate clockwise|counterclockwise|180 ...` when a screen recording's visual orientation differs from its encoded dimensions. This is common with some landscape iPad recordings that probe as portrait.
+- Non-alpha MP4 exports pad odd-sized Apple frame assets to even encoded dimensions instead of letting ffmpeg crop silently. Check `output_dimensions` and `padded` in JSON output.
 
 ## Quick Reference
 
@@ -42,6 +44,7 @@ frames video recording.mp4
 frames video --preset compact recording.mp4
 frames video --preset balanced recording.mp4
 frames video --preset best recording.mp4
+frames video --rotate counterclockwise ipad-landscape-recording.mp4
 frames video --alpha recording.mp4
 frames video -m --alpha 1.mp4 2.mp4
 frames video -m --background transparent 1.mp4 2.mp4
@@ -99,6 +102,8 @@ frames setup /path/to/Frames
 - Merge multiple framed outputs with physical-size normalization by default.
 - Frame `.mp4`, `.mov`, and `.m4v` files through `frames video`; single-video audio is preserved unless `--strip-audio` is passed.
 - Use `--preset compact`, `--preset balanced`, or `--preset best` to tune MP4 export size/quality. `best` is the default.
+- Use `--rotate clockwise|counterclockwise|180` to rotate videos before auto-detection and framing.
+- MP4/H.264 and MP4/HEVC outputs are padded to even encoded dimensions when the chosen frame asset has an odd width or height; JSON reports `output_dimensions` and `padded`.
 - Report output file size and savings after video export in both human output and `--json` agent output.
 - Use `--alpha` or `--background transparent` to create transparent ProRes 4444 MOV output for single or merged videos.
 - Show a live terminal progress bar during video renders in interactive mode; JSON and non-TTY runs stay pipeline-friendly.
@@ -131,6 +136,7 @@ frames setup /path/to/Frames
 ## Video Notes
 
 - `frames video-info FILE` reports dimensions, duration, fps, codec, audio state, matched device, selected color, frame size, mask state, and resize metadata without creating an output video.
+- `frames video-info --rotate counterclockwise FILE` reports the post-rotation dimensions and matched device before spending time rendering.
 - `frames video FILE` writes `FILE_framed.mp4` by default, or `.mov` when `--alpha`, `--codec prores`, or `--background transparent` is used.
 - `--alpha` defaults the background to transparent unless the user explicitly passes another `--background`.
 - Explicit alpha/transparent output files must end in `.mov`; otherwise `frames video` fails before rendering.
@@ -144,8 +150,9 @@ frames setup /path/to/Frames
 - Transparent merged videos preserve alpha with ProRes 4444 (`yuva444p10le`), suitable for compositing in video editors and presentation tools.
 - `--preset compact|balanced|best` controls H.264/HEVC hardware bitrate and software CRF. `best` is the default; `balanced` and `compact` trade quality for smaller files. ProRes/alpha output keeps ProRes settings.
 - `--quality N` is an expert software CRF override; lower is higher quality.
+- `--rotate clockwise|counterclockwise|180` is applied before device matching, resizing, masks, and framing.
 - `--color random` randomizes independently per input. `--colors "A,B,random"` maps values to expanded inputs by order and the count must match after directory expansion.
-- `video-info` accepts `--device`, `--color`, and `--colors`; it uses the same resolution rules as `frames video`.
+- `video-info` accepts `--device`, `--color`, `--colors`, and `--rotate`; it uses the same resolution rules as `frames video`.
 - Taildrop or other delivery is separate from `frames`; render first, verify the output, then use the delivery workflow the user requested.
 
 ## JSON Output Behavior
@@ -156,9 +163,9 @@ frames setup /path/to/Frames
 - `frames --json -b N ...` returns `batches`, `batch_size`, `total`, and `frames`.
 - When proportional merge scaling is applied, per-frame `scale_factor` values are included in the JSON output.
 - `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`.
-- `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `resize_width`, and `mask_missing`.
+- `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `source_dimensions`, `rotation`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `output_dimensions`, `padded`, `resize_width`, and `mask_missing`.
 - `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
-- `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs, including `preset`, `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent`.
+- `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs, including `rotation`, `source_dimensions`, `output_dimensions`, `padded`, `preset`, `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent`.
 - `frames --json video -m ...` returns `merged`, `duration`, `dimensions`, `playback_offset`, audio state, top-level output size/savings fields, and per-input `frames`. For transparent exports, `alpha` is `true` on each frame and `background` reports `transparent` unless another background was explicitly requested.
 
 ## Assets and Config
@@ -195,7 +202,7 @@ Setup behavior:
 
 ## Current Supported Device Families
 
-The current v4 asset bundle used by `frames` 1.3.0 includes these primary families:
+The current v4 asset bundle used by `frames` 1.3.1 includes these primary families:
 
 - iPhone: iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
@@ -226,3 +233,4 @@ If an exact older variant is required, pass `--device` with the exact frame name
 6. For multi-video previews, choose `frames video -m` for simultaneous playback and `frames video -m --playback-offset` for left-to-right sequential playback.
 7. Prefer `--strip-audio` for generated test artifacts unless the user specifically wants audio preserved.
 8. After video rendering, verify with `ffprobe` when final output audio state, duration, codec, or stream count matters.
+9. If an iPad screen recording probes as portrait but the visible content is landscape, rerun `video-info` with `--rotate counterclockwise` or `--rotate clockwise` and verify it resolves to the landscape frame before rendering.

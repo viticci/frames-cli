@@ -119,6 +119,16 @@ class ColorArgumentTests(unittest.TestCase):
 
 
 class VideoHelperTests(unittest.TestCase):
+    def _video_args(self, **overrides):
+        values = {
+            "alpha": False,
+            "codec": "h264",
+            "background": None,
+            "rotate": "none",
+        }
+        values.update(overrides)
+        return Namespace(**values)
+
     def _version_process(self, tool, version):
         return frames.subprocess.CompletedProcess(
             [tool, "-version"],
@@ -500,6 +510,90 @@ class VideoHelperTests(unittest.TestCase):
         self.assertLess(layout[1]["scale_factor"], 1.0)
         self.assertEqual(layout[1]["y"], height - layout[1]["height"])
         self.assertEqual(width, layout[0]["width"] + 60 + layout[1]["width"])
+
+    def test_counterclockwise_rotation_swaps_dimensions_and_preserves_source(self):
+        meta = {
+            "width": 1640,
+            "height": 2360,
+            "duration": 21.665,
+            "fps": 60.0,
+        }
+
+        rotated = frames._rotated_video_meta(meta, "counterclockwise")
+
+        self.assertEqual(rotated["width"], 2360)
+        self.assertEqual(rotated["height"], 1640)
+        self.assertEqual(rotated["source_dimensions"], "1640x2360")
+        self.assertEqual(rotated["rotation"], "counterclockwise")
+        self.assertEqual(rotated["duration"], 21.665)
+
+    def test_180_rotation_keeps_dimensions(self):
+        meta = {"width": 1640, "height": 2360}
+
+        rotated = frames._rotated_video_meta(meta, "180")
+
+        self.assertEqual(rotated["width"], 1640)
+        self.assertEqual(rotated["height"], 2360)
+        self.assertEqual(rotated["source_dimensions"], "1640x2360")
+
+    def test_video_source_filter_includes_rotation_before_rgba(self):
+        self.assertEqual(frames._video_source_filter(self._video_args()), "format=rgba")
+        self.assertEqual(
+            frames._video_source_filter(self._video_args(rotate="counterclockwise")),
+            "transpose=2,format=rgba",
+        )
+        self.assertEqual(
+            frames._video_source_filter(self._video_args(rotate="180")),
+            "hflip,vflip,format=rgba",
+        )
+
+    def test_non_alpha_mp4_dimensions_are_padded_to_even(self):
+        self.assertEqual(
+            frames._video_output_dimension_info(1921, 2640, self._video_args()),
+            {
+                "output_width": 1922,
+                "output_height": 2640,
+                "output_dimensions": "1922x2640",
+                "padded": True,
+            },
+        )
+        self.assertEqual(
+            frames._video_pad_filter(1921, 2640, self._video_args()),
+            "pad=1922:2640:0:0:color=white",
+        )
+
+    def test_alpha_outputs_keep_odd_dimensions(self):
+        args = self._video_args(alpha=True)
+
+        self.assertEqual(
+            frames._video_output_dimension_info(1921, 2640, args),
+            {
+                "output_width": 1921,
+                "output_height": 2640,
+                "output_dimensions": "1921x2640",
+                "padded": False,
+            },
+        )
+        self.assertIsNone(frames._video_pad_filter(1921, 2640, args))
+
+    def test_video_merge_layout_uses_encoded_output_dimensions(self):
+        item = {
+            "frame_meta": {
+                "frame_width": 1921,
+                "frame_height": 2640,
+                "physicalHeight": 247.6,
+            },
+            "info": {
+                "output_width": 1922,
+                "output_height": 2640,
+            },
+        }
+
+        width, height, layout = frames.compute_video_merge_layout([item], spacing=60)
+
+        self.assertEqual(width, 1922)
+        self.assertEqual(height, 2640)
+        self.assertEqual(layout[0]["width"], 1922)
 
     def test_video_output_path_accepts_single_explicit_file(self):
         args = Namespace(output="/tmp/out/custom.mov", alpha=True, codec="h264", background="white")
