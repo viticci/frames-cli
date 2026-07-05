@@ -484,6 +484,47 @@ class VideoHelperTests(unittest.TestCase):
         self.assertIn("format=yuva444p10le[out]", filter_complex)
         self.assertIn("prores_ks", cmd)
 
+    def test_single_video_composites_on_rgba_canvas_before_non_alpha_output(self):
+        args = Namespace(
+            strip_audio=True,
+            background=None,
+            alpha=False,
+            codec="h264",
+            preset="best",
+            quality=None,
+            rotate="counterclockwise",
+        )
+        frame_meta = {
+            "mask_path": None,
+            "frame_path": "/tmp/iPad Air 2020 Landscape.png",
+            "frame_width": 2640,
+            "frame_height": 1920,
+            "resize_width": None,
+            "resize_height": None,
+            "x": 140,
+            "y": 139,
+        }
+        video_meta = {
+            "fps_rate": "60/1",
+            "duration": 1.0,
+            "audio": False,
+        }
+
+        with mock.patch.object(frames, "_run_ffmpeg") as run:
+            frames.render_framed_video(
+                Path("/tmp/source.mp4"),
+                Path("/tmp/out.mp4"),
+                frame_meta,
+                video_meta,
+                args,
+            )
+
+        cmd = run.call_args.args[0]
+        filter_complex = cmd[cmd.index("-filter_complex") + 1]
+        self.assertIn("color=c=white:s=2640x1920:r=60/1:d=1.0,format=rgba[base]", filter_complex)
+        self.assertIn("[base][v0]overlay=140:139:format=auto[tmp]", filter_complex)
+        self.assertIn("[framed]format=yuv420p[out]", filter_complex)
+
     def test_video_path_gathering_is_top_level_only(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

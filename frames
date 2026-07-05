@@ -1620,11 +1620,10 @@ def render_framed_video(src_path, out_path, frame_meta, video_meta, args, temp_o
         f"color=c={background}:s={frame_meta['frame_width']}x{frame_meta['frame_height']}:"
         f"r={_normalize_rate(video_meta['fps_rate'])}:d={video_meta['duration']}"
     )
-    if _output_uses_alpha(args):
-        canvas += ",format=rgba"
+    canvas += ",format=rgba"
     canvas += "[base]"
     filters.append(canvas)
-    overlay_format = ":format=auto" if _output_uses_alpha(args) else ""
+    overlay_format = ":format=auto"
     out_format = "yuva444p10le" if _output_uses_alpha(args) else "yuv420p"
     filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}{overlay_format}[tmp]")
     filters.append(f"[tmp][{frame_index}:v]overlay=0:0:format=auto[framed]")
@@ -1726,8 +1725,7 @@ def render_merged_video(items, out_path, args, progress_label=None):
     filters = []
     uses_alpha = _output_uses_alpha(args)
     overlay_chain = f"color=c={_background_color(_video_background(args))}:s={width}x{height}:r=30:d={total_duration}"
-    if uses_alpha:
-        overlay_chain += ",format=rgba"
+    overlay_chain += ",format=rgba"
     overlay_chain += "[base]"
     filters.append(overlay_chain)
     current = "base"
@@ -1742,9 +1740,7 @@ def render_merged_video(items, out_path, args, progress_label=None):
             start_pad = 0.0
             stop_pad = max(0.0, total_duration - duration)
 
-        chain = f"[{idx}:v]fps=30,setpts=PTS-STARTPTS"
-        if uses_alpha:
-            chain += ",format=rgba"
+        chain = f"[{idx}:v]fps=30,setpts=PTS-STARTPTS,format=rgba"
         info = item.get("info", {})
         source_width = int(info.get("output_width", item["frame_meta"]["frame_width"]))
         source_height = int(info.get("output_height", item["frame_meta"]["frame_height"]))
@@ -1761,7 +1757,7 @@ def render_merged_video(items, out_path, args, progress_label=None):
         filters.append(chain)
 
         next_label = "outv" if idx == len(items) - 1 else f"tmp{idx}"
-        overlay_format = ":format=auto" if uses_alpha else ""
+        overlay_format = ":format=auto"
         filters.append(f"[{current}][v{idx}]overlay={frame['x']}:{frame['y']}{overlay_format}[{next_label}]")
         current = next_label
 
