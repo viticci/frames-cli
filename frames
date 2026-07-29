@@ -2705,7 +2705,8 @@ def cmd_video_info(args):
         audio = f", audio: {r['audio_codec']}" if r.get("audio") else ", no audio"
         print(f"  {C.dim(dims)} {C.dim('•')} {duration} {C.dim('•')} {r.get('codec') or 'unknown codec'}{audio}")
         if r.get("rotation") and r["rotation"] != "none":
-            print(f"    {C.dim('Rotated:')} {r['source_dimensions']} {C.dim('→')} {r['dimensions']} {C.dim(f'({r["rotation"]})')}")
+            rotation_label = f"({r['rotation']})"
+            print(f"    {C.dim('Rotated:')} {r['source_dimensions']} {C.dim('→')} {r['dimensions']} {C.dim(rotation_label)}")
         print(f"  {C.green('✓')} {C.bold(r['device'])}")
         if r.get("is_variant"):
             print(f"    {C.dim('Primary match:')} {r['primary_match']} {C.dim('→ variant resolved')}")
