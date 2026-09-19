@@ -555,6 +555,8 @@ FRAME_COLORS = {
     "iPhone Duo Inner Portrait":   ["Night Sky", "Star White"],
     "iPhone Duo Inner Landscape":  ["Night Sky", "Star White"],
     "iPhone Duo Outer Open":       ["Night Sky", "Star White"],
+    "iPhone 18 Pro Portrait":      ["Black", "Silver", "Glacier", "Burgundy"],
+    "iPhone 18 Pro Landscape":     ["Black", "Silver", "Glacier", "Burgundy"],
     "iPhone 17 Pro Portrait":      ["Cosmic Orange", "Deep Blue", "Silver"],
     "iPhone 17 Pro Landscape":     ["Cosmic Orange", "Deep Blue", "Silver"],
     "iPhone 17 Pro Max Portrait":  ["Cosmic Orange", "Deep Blue", "Silver"],
@@ -587,8 +589,8 @@ FRAME_COLORS = {
 
 # Frame Variants: first item = default device
 FRAME_VARIANTS = {
-    "iPhone 17 Portrait":          ["iPhone 17 Pro Portrait", "iPhone 17 Portrait", "iPhone 16 Pro Portrait"],
-    "iPhone 17 Landscape":         ["iPhone 17 Pro Landscape", "iPhone 17 Landscape", "iPhone 16 Pro Landscape"],
+    "iPhone 17 Portrait":          ["iPhone 18 Pro Portrait", "iPhone 17 Pro Portrait", "iPhone 17 Portrait", "iPhone 16 Pro Portrait"],
+    "iPhone 17 Landscape":         ["iPhone 18 Pro Landscape", "iPhone 17 Pro Landscape", "iPhone 17 Landscape", "iPhone 16 Pro Landscape"],
     "iPhone 17 Pro Max Portrait":  ["iPhone 17 Pro Max Portrait", "iPhone 16 Pro Max Portrait"],
     "iPhone 17 Pro Max Landscape": ["iPhone 17 Pro Max Landscape", "iPhone 16 Pro Max Landscape"],
     "iPhone 16 Portrait":          ["iPhone 16 Portrait", "iPhone 15 Pro Portrait"],
@@ -645,17 +647,16 @@ def detect_device(img, device_dict):
 
 
 def resolve_variant(model_name, device_dict):
-    """Apply variant resolution — first item in variant array is the default."""
+    """Resolve the newest installed variant, falling back to the primary frame."""
     if model_name not in FRAME_VARIANTS:
         return None, model_name
 
-    variants = FRAME_VARIANTS[model_name]
-    default_variant = variants[0]
-
-    if default_variant != model_name:
-        # Load variant device data from JSON
-        if "variants" in device_dict and default_variant in device_dict["variants"]:
-            variant_data = device_dict["variants"][default_variant]
+    installed = device_dict.get("variants", {})
+    for candidate in FRAME_VARIANTS[model_name]:
+        if candidate == model_name:
+            return None, model_name
+        if candidate in installed:
+            variant_data = installed[candidate]
             return variant_data, variant_data["name"]
 
     return None, model_name
@@ -2407,8 +2408,8 @@ def cmd_list(args):
 
     # Show variant defaults
     print(f"  {C.bold('Default Variants')} {C.dim('(newest device used automatically)')}")
-    for primary, variants in FRAME_VARIANTS.items():
-        default = variants[0]
+    for primary in FRAME_VARIANTS:
+        _, default = resolve_variant(primary, device_dict)
         if default != primary:
             print(f"    {C.dim(primary)} → {C.green(default)}")
     print()

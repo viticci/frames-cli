@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Added iPhone 18 Pro portrait and landscape variants in Black, Silver, Glacier, and Burgundy.
+- Shared 1206 × 2622 and 2622 × 1206 inputs now prefer iPhone 18 Pro when its assets are installed; iPhone 17 Pro remains available through `--device`.
+- Added a non-destructive asset-pack builder with geometry validation, generated screen masks, checksums, documentation, and tests. Apple artwork remains outside the repository.
+
 ## 1.4.1 — 2026-09-10
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.4.1 adds **experimental iPhone Duo support** using Apple's official artwork and published display resolutions. Developers can test both displays in both orientations, choose either finish, and show the outer screen alone or beside the phone's back.

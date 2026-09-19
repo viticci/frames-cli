@@ -238,15 +238,15 @@ The two explicit outer views use the same 1398 × 2034 input. The default is `iP
 
 The standard v4 asset bundle used by `frames` 1.4.1 includes these primary families:
 
-- iPhone: iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
+- iPhone: iPhone 18 Pro, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
 - Mac: MacBook Neo, MacBook Pro 13, MacBook Air 2020, MacBook Air M5 13, MacBook Air M5 15, MacBook Pro M5 14, MacBook Pro M5 16, iMac M4, Studio Display, Studio Display XDR
 - Watch: Watch Series 7 41, Watch Series 7 45, Watch Series 11 42, Watch Series 11 46, Watch Ultra 2024, Watch Ultra 3
 
 Current default variant resolution favors the newest matching frame for shared screenshot sizes:
 
-- `iPhone 17 Portrait` resolves to `iPhone 17 Pro Portrait`
-- `iPhone 17 Landscape` resolves to `iPhone 17 Pro Landscape`
+- `iPhone 17 Portrait` resolves to `iPhone 18 Pro Portrait` when that variant is installed
+- `iPhone 17 Landscape` resolves to `iPhone 18 Pro Landscape` when that variant is installed
 - `iPhone 17 Pro Max` shares sizes with `iPhone 16 Pro Max`
 - `iPhone 16` shares sizes with `iPhone 15 Pro`
 - `iPhone 16 Plus` shares sizes with `iPhone 15 Pro Max`

@@ -79,6 +79,22 @@ The guided setup downloads the asset pack, extracts it, and saves the path to `~
 
 You can also set the `FRAMES_ASSETS` environment variable instead of using the config file.
 
+### iPhone 18 Pro support
+
+iPhone 18 Pro uses the same native screenshot dimensions as iPhone 17 Pro: **1206 × 2622** in portrait and **2622 × 1206** in landscape. With an asset pack containing the new variants, automatic detection selects iPhone 18 Pro; pass `--device "iPhone 17 Pro Portrait"` or `--device "iPhone 17 Pro Landscape"` to keep using the older frame explicitly.
+
+Apple's bezel artwork is not stored in this repository. Put the eight portrait/landscape PNGs for Black, Silver, Glacier, and Burgundy in a source folder using names such as `iPhone 18 Pro Portrait Black.png`, then build a complete pack without modifying the base pack:
+
+```bash
+python3 scripts/build_iphone_18_pro_assets.py \
+  --source /path/to/iphone-18-pro-pngs \
+  --base-assets /path/to/Frames \
+  --output /path/to/Frames-iPhone-18-Pro
+frames setup /path/to/Frames-iPhone-18-Pro
+```
+
+The builder validates the official canvas and display geometry, generates enclosed-screen masks, records checksums in `iPhone-18-Pro.json`, and refuses to overwrite an existing output folder.
+
 ### Experimental iPhone Duo support
 
 Frames **1.4.1 or later** supports Duo with a separate, opt-in asset pack. It includes both displays in portrait and landscape, Night Sky and Star White finishes, and a view showing the phone's back beside its outer screen. Updating the CLI alone does not install the pack; normal `frames setup` still downloads AppleFrames401.zip.
@@ -595,6 +611,7 @@ frames -f ~/screenshots/*.png
 | Category | Devices | Notes |
 |----------|---------|-------|
 | iPhone Duo (experimental pack) | Inner and outer displays | Portrait + landscape; optional rear view |
+| iPhone 18 | 18 Pro | Portrait + landscape; 4 finishes |
 | iPhone 17 | 17, 17 Pro, 17 Pro Max | Portrait + landscape |
 | iPhone Air | Air | Portrait + landscape |
 | iPhone 16 | 16, 16 Plus, 16 Pro, 16 Pro Max | Portrait + landscape |
@@ -620,7 +637,7 @@ python3 -m unittest discover -s tests -v
 
 The video rendering tests also need `ffmpeg` and `ffprobe`; they are skipped when either tool is missing. Tests create temporary inputs and assets. The optional native HEVC-alpha test also requires macOS, a working `swiftc`, and ffmpeg HEVC alpha support. It skips when prerequisites are unavailable; otherwise, failures fail the suite. It decodes exports through AVFoundation to check transparency, masks, geometry, and opaque backgrounds.
 
-The Duo tests cover device listing, exact resolution matching, both finishes, the manual rear view, explicit image/video resize dimensions, enclosed screen masks, and metadata removal. They use small synthetic assets; full artwork verification is described in the [Duo guide](docs/iphone-duo-experimental.md).
+The iPhone 18 Pro tests cover shared-resolution default selection, explicit iPhone 17 Pro selection, finishes, catalog listing, and enclosed screen masks. The Duo tests cover device listing, exact resolution matching, both finishes, the manual rear view, explicit image/video resize dimensions, enclosed screen masks, and metadata removal. They use small synthetic assets; full artwork verification is described in the [Duo guide](docs/iphone-duo-experimental.md).
 
 ---
 
