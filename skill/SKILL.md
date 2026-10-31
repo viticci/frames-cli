@@ -240,7 +240,7 @@ The standard v4 asset bundle used by `frames` 1.5.1 includes these primary famil
 
 - iPhone: iPhone Duo (inner and outer displays), iPhone 18 Pro, iPhone 18 Pro Max, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
-- Mac: MacBook Neo, MacBook Pro 13, MacBook Air 2020, MacBook Air M5 13, MacBook Air M5 15, MacBook Pro M5 14, MacBook Pro M5 16, iMac M4, Studio Display, Studio Display XDR
+- Mac: MacBook Pro PROLED 14, MacBook Pro PROLED 16, MacBook Neo, MacBook Pro 13, MacBook Air 2020, MacBook Air M5 13, MacBook Air M5 15, MacBook Pro M5 14, MacBook Pro M5 16, iMac M4, Studio Display, Studio Display XDR
 - Watch: Watch Series 7 41, Watch Series 7 45, Watch Series 11 42, Watch Series 11 46, Watch Ultra 2024, Watch Ultra 3
 
 Current default variant resolution favors the newest matching frame for shared screenshot sizes:
@@ -252,6 +252,7 @@ Current default variant resolution favors the newest matching frame for shared s
 - `iPhone 16` shares sizes with `iPhone 15 Pro`
 - `iPhone 16 Plus` shares sizes with `iPhone 15 Pro Max`
 - `MacBook Pro M5` shares sizes with `MacBook Pro 2021`
+- `MacBook Pro PROLED 14` (3024 × 1986) and `MacBook Pro PROLED 16` (3472 × 2266) come in Silver (default) and Space Black. The 14-inch shares its width with `MacBook Pro M5 14` (3024 × 1964), so width 3024 is matched by height
 - `MacBook Air M5 13` shares sizes with `MacBook Air 2022`
 - `Studio Display` shares sizes with `Studio Display XDR`
 - `Watch Series 11` shares sizes with `Watch Series 10`

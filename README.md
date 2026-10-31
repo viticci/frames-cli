@@ -99,6 +99,21 @@ frames -d "iPhone 17 Pro Max Landscape" -c "Deep Blue" screenshot.png
 
 ![](https://cdn.macstories.net/images/uploads/2026/09/30/iphone-18-pro-and-iphone-duo-macstories-dark-1790757504710-aae99b99cf.png)
 
+### MacBook Pro with PROLED XDR Display
+
+Frames frames MacBook Pro with PROLED XDR Display screenshots with Apple's official bezels in Silver and Space Black:
+
+| Input width × height | Automatic frame |
+| --- | --- |
+| 3024 × 1986 | MacBook Pro PROLED 14 |
+| 3472 × 2266 | MacBook Pro PROLED 16 |
+
+These are the displays' native resolutions. The Dynamic Island is drawn by the frame, so leave it out of your screenshot. 3024 × 1964 screenshots still use the M5 MacBook Pro 14 frame.
+
+```bash
+frames -c "Space Black" proled.png
+```
+
 ### iPhone Duo
 
 Frames **1.5.0 or later** frames iPhone Duo screenshots and recordings with Apple's official bezels in Night Sky and Star White. The artwork ships in the same standard asset pack as iPhone 18 Pro. Both displays work in portrait and landscape:

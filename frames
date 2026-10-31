@@ -43,7 +43,11 @@ ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/09/30/appleframes40
 ASSETS_MIN_VERSION = 4
 # Newest devices in the standard pack, each with a frame that proves it is
 # installed; doctor suggests updating packs that lack any of them.
-LATEST_PACK_FRAMES = {"iPhone 18 Pro": "iPhone 18 Pro Portrait", "iPhone Duo": "iPhone Duo Outer Open"}
+LATEST_PACK_FRAMES = {
+    "iPhone 18 Pro": "iPhone 18 Pro Portrait",
+    "iPhone Duo": "iPhone Duo Outer Open",
+    "MacBook Pro with PROLED XDR Display": "MacBook Pro PROLED 14",
+}
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
 VALID_IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".heic", ".tiff", ".webp"}
@@ -571,6 +575,8 @@ FRAME_COLORS = {
     "iPhone Air Landscape":        ["Black", "White", "Gold", "Blue"],
     "MacBook Pro M5 14":           ["Silver", "Space Black"],
     "MacBook Pro M5 16":           ["Silver", "Space Black"],
+    "MacBook Pro PROLED 14":       ["Silver", "Space Black"],
+    "MacBook Pro PROLED 16":       ["Silver", "Space Black"],
     "MacBook Neo":                 ["Blush", "Citrus", "Indigo", "Silver"],
     "iPhone 16 Pro Portrait":      ["Natural", "Desert", "Black", "White"],
     "iPhone 16 Pro Landscape":     ["Natural", "Desert", "Black", "White"],
@@ -3044,11 +3050,11 @@ def copy_to_clipboard(path, announce=True):
 
 
 def _pack_has_frame(json_path, name):
-    """True when NewFrames.json defines a variant with this name."""
+    """True when NewFrames.json defines a frame with this name."""
     try:
         with open(json_path, encoding="utf-8") as f:
-            return name in json.load(f).get("variants", {})
-    except (ValueError, OSError, AttributeError):
+            return name in build_device_name_index(json.load(f))
+    except (ValueError, OSError, AttributeError, KeyError, TypeError):
         return False
 
 

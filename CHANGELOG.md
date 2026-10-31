@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### MacBook Pro with PROLED XDR Display
+
+- Frames MacBook Pro with PROLED XDR Display screenshots with Apple's official bezels in Silver and Space Black. 14-inch screenshots are 3024 × 1986 and 16-inch screenshots are 3472 × 2266. The Dynamic Island is part of Apple's frame.
+- The 14-inch shares its width with the M5 MacBook Pro, so 3024-wide screenshots now match by height: 3024 × 1964 still uses the M5 frame.
+- `scripts/build_proled_assets.py` adds Apple's PNGs to the standard pack, and `frames doctor` notes when a pack predates these frames.
+
 ## 1.5.1 — 2026-10-23
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.5.1 makes video framing and merges faster and fixes video support on Arch Linux. It uses the same asset pack as 1.5.0, so there is nothing to download after updating the CLI.
