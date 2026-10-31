@@ -194,7 +194,8 @@ def build_pack(source, base, destination, archive=None):
                                       "sha256": sha256((stage / mask_name).read_bytes())})
             print("Prepared {}".format(view["name"]), flush=True)
         (stage / "NewFrames.json").write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
-        (stage / "version.txt").write_text(version + "\n", encoding="utf-8")
+        # No trailing newline: the Apple Frames shortcut compares this text exactly.
+        (stage / "version.txt").write_text(version, encoding="utf-8")
         license_path = source.parent / "Apple Design Resources License.rtf"
         if not license_path.is_file():
             raise ValueError("Keep Apple Design Resources License.rtf beside the source PNG folder")

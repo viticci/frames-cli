@@ -123,7 +123,8 @@ def build_pack(source, base, destination, archive=None, version=None):
             manifest["masks"].append({"file": mask_name, "size": first_mask.size})
             print("Prepared {}".format(view["name"]), flush=True)
         (stage / "NewFrames.json").write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
-        (stage / "version.txt").write_text(version + "\n", encoding="utf-8")
+        # No trailing newline: the Apple Frames shortcut compares this text exactly.
+        (stage / "version.txt").write_text(version, encoding="utf-8")
         stage.rename(destination)
     if archive:
         write_archive(destination, archive)

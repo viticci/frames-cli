@@ -10,10 +10,10 @@
 
 ### One asset pack, 17% smaller
 
-`frames setup` now downloads [AppleFrames410.zip](https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793428342954-c47f6ec429.zip) (50.2 MB, down from 60.8 MB), pack version 4.1.0. The Apple Frames shortcut uses the same pack, so the CLI and the shortcut no longer ship different files.
+`frames setup` now downloads [AppleFrames410.zip](https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793441180832-5261e17e8a.zip) (50.2 MB, down from 60.8 MB), pack version 4.1.0. The Apple Frames shortcut uses the same pack, so the CLI and the shortcut no longer ship different files.
 
 - `scripts/optimize_pack.py` recompresses every frame. A frame is reduced to 256 colors only when that change is invisible: its worst 32-pixel block may differ by at most 2/255 on white and black backgrounds. The rest, including every mask, are recompressed losslessly. PNG data went from 66.1 MB to 51.3 MB.
-- The ZIP is 50,212,958 bytes with SHA-256 `f14793d2d455fae37918ed8a03128a28da742e4ece5f7afabc6190e348c4ba70`.
+- The ZIP is 50,212,957 bytes with SHA-256 `c32c30f8f45095e07011e5f2bec8045d3c5b1c4a31f8b8fea5dbb6cd945ec317`.
 
 ## 1.5.1 — 2026-10-23
 
