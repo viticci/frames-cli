@@ -73,7 +73,7 @@ def split_shared_width(catalog, width, height):
     return catalog
 
 
-def build_pack(source, base, destination, archive=None):
+def build_pack(source, base, destination, archive=None, version=None):
     """Build and validate a complete pack without replacing any existing path."""
     if destination.exists():
         raise ValueError("Destination must not exist: {}".format(destination))
@@ -82,7 +82,7 @@ def build_pack(source, base, destination, archive=None):
     catalog = json.loads((base / "NewFrames.json").read_text(encoding="utf-8"))
     if not isinstance(catalog, dict) or "variants" not in catalog:
         raise ValueError("Base must be an Apple Frames 4 pack")
-    version = (base / "version.txt").read_text(encoding="utf-8").strip()
+    version = version or (base / "version.txt").read_text(encoding="utf-8").strip()
     if int(version.split(".")[0]) < 4:
         raise ValueError("Base asset version must be at least 4")
     if catalog.get("3024", {}).get("name") not in (None, "MacBook Pro M5 14"):
@@ -136,9 +136,10 @@ def main():
     parser.add_argument("--base-assets", type=Path, required=True, help="Existing Apple Frames 4 assets with iPhone Duo")
     parser.add_argument("--output", type=Path, required=True, help="New assets directory")
     parser.add_argument("--archive", type=Path, help="New ZIP file for distribution")
+    parser.add_argument("--version", help="version.txt for the new pack (default: the base pack's)")
     args = parser.parse_args()
     try:
-        manifest = build_pack(args.source, args.base_assets, args.output, args.archive)
+        manifest = build_pack(args.source, args.base_assets, args.output, args.archive, args.version)
     except (ValueError, OSError) as error:
         parser.exit(1, "Error: {}\n".format(error))
     before = sum(item["source_bytes"] for item in manifest["frames"])

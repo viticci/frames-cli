@@ -68,7 +68,7 @@ Then restart your terminal or run `source ~/.zshrc`.
 The CLI offers to download Apple Frames 4 assets when a command needs them and you run it interactively. Setup also checks video requirements and, on macOS, can install ffmpeg for you with Homebrew if it is missing. You can also set up manually:
 
 ```bash
-# Guided download (interactive — downloads ~60 MB from cdn.macstories.net)
+# Guided download (interactive — downloads ~50 MB from cdn.macstories.net)
 frames setup
 
 # Or point to an existing assets folder
@@ -533,7 +533,7 @@ frames --json info screenshot.png
 
 ### `setup`
 
-Download assets or configure the assets folder path. Without arguments, starts an interactive download from `cdn.macstories.net` (~60 MB). With a path, points the CLI at an existing assets folder. With only `--subfolder` or `--no-subfolder`, updates that setting without starting setup.
+Download assets or configure the assets folder path. Without arguments, starts an interactive download from `cdn.macstories.net` (~50 MB). With a path, points the CLI at an existing assets folder. With only `--subfolder` or `--no-subfolder`, updates that setting without starting setup.
 
 ```bash
 # Download assets interactively (first-time setup or re-download)

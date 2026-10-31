@@ -8,6 +8,13 @@
 - The 14-inch shares its width with the M5 MacBook Pro, so 3024-wide screenshots now match by height: 3024 × 1964 still uses the M5 frame.
 - `scripts/build_proled_assets.py` adds Apple's PNGs to the standard pack, and `frames doctor` notes when a pack predates these frames.
 
+### One asset pack, 17% smaller
+
+`frames setup` now downloads [AppleFrames410.zip](https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793428342954-c47f6ec429.zip) (50.2 MB, down from 60.8 MB), pack version 4.1.0. The Apple Frames shortcut uses the same pack, so the CLI and the shortcut no longer ship different files.
+
+- `scripts/optimize_pack.py` recompresses every frame. A frame is reduced to 256 colors only when that change is invisible: its worst 32-pixel block may differ by at most 2/255 on white and black backgrounds. The rest, including every mask, are recompressed losslessly. PNG data went from 66.1 MB to 51.3 MB.
+- The ZIP is 50,212,958 bytes with SHA-256 `f14793d2d455fae37918ed8a03128a28da742e4ece5f7afabc6190e348c4ba70`.
+
 ## 1.5.1 — 2026-10-23
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.5.1 makes video framing and merges faster and fixes video support on Arch Linux. It uses the same asset pack as 1.5.0, so there is nothing to download after updating the CLI.

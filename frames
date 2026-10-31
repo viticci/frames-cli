@@ -39,7 +39,7 @@ APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/09/30/appleframes402-1790756136687-572a1ccddd.zip"
+ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793428342954-c47f6ec429.zip"
 ASSETS_MIN_VERSION = 4
 # Newest devices in the standard pack, each with a frame that proves it is
 # installed; doctor suggests updating packs that lack any of them.
@@ -403,7 +403,7 @@ def guided_setup(reason=None):
     else:
         print(f"  {C.bold('Apple Frames 4')} asset setup")
     print()
-    print(f"  Download device frames from {C.cyan('cdn.macstories.net')}? (~60 MB)")
+    print(f"  Download device frames from {C.cyan('cdn.macstories.net')}? (~50 MB)")
     print()
     print(f"  Install to {C.cyan(short_default)}")
     print()
