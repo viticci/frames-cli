@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.6.1 — 2026-11-02
+
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.6.1 moves to asset pack 4.1.1, which crops every frame to its device. Merges in the Apple Frames shortcut now get real-world proportions right, and framed images no longer carry an empty border. Run `frames setup` after updating to download the new pack.
 
 ### Asset pack 4.1.1: frames without empty borders
 
