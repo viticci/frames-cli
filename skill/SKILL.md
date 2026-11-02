@@ -205,7 +205,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793441180832-5261e17e8a.zip` (AppleFrames410.zip, 50,212,957 bytes, SHA-256 `c32c30f8f45095e07011e5f2bec8045d3c5b1c4a31f8b8fea5dbb6cd945ec317`), pack version 4.1.0. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, and MacBook Pro with PROLED XDR Display. It has 293 PNGs. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/02/appleframes410-1793619065631-29622fdbc3.zip` (AppleFrames410.zip, 50,212,957 bytes, SHA-256 `3baf1d730cf5769582b37570841cc8a7e2c4c6e9000364412ff489bfbf861b0d`), pack version 4.1.0. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, and MacBook Pro with PROLED XDR Display. It has 293 PNGs. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - `--assets` and `setup PATH` take a local folder, not a URL or ZIP file. The separate `Frames-Duo-Experimental` pack from 1.4.1 is superseded; switch users to the standard pack with `frames setup`.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.

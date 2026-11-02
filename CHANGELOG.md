@@ -10,10 +10,16 @@
 
 ### One asset pack, 17% smaller
 
-`frames setup` now downloads [AppleFrames410.zip](https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793441180832-5261e17e8a.zip) (50.2 MB, down from 60.8 MB), pack version 4.1.0. The Apple Frames shortcut uses the same pack, so the CLI and the shortcut no longer ship different files.
+`frames setup` now downloads [AppleFrames410.zip](https://cdn.macstories.net/images/uploads/2026/11/02/appleframes410-1793619065631-29622fdbc3.zip) (50.2 MB, down from 60.8 MB), pack version 4.1.0. The Apple Frames shortcut uses the same pack, so the CLI and the shortcut no longer ship different files.
 
 - `scripts/optimize_pack.py` recompresses every frame. A frame is reduced to 256 colors only when that change is invisible: its worst 32-pixel block may differ by at most 2/255 on white and black backgrounds. The rest, including every mask, are recompressed losslessly. PNG data went from 66.1 MB to 51.3 MB.
-- The ZIP is 50,212,957 bytes with SHA-256 `c32c30f8f45095e07011e5f2bec8045d3c5b1c4a31f8b8fea5dbb6cd945ec317`.
+- The ZIP is 50,212,957 bytes with SHA-256 `3baf1d730cf5769582b37570841cc8a7e2c4c6e9000364412ff489bfbf861b0d`.
+
+### Fixes
+
+Thanks to [Gianpiero Spinelli](https://github.com/gianpispi) ([#11](https://github.com/viticci/frames-cli/pull/11)):
+
+- **iPad mini screenshots line up with the bezel.** Older packs swapped the x and y offsets, which clipped 4 pixels off two edges and left a 4-pixel gap on the other two. Pack 4.1.0 has the correct offsets, and the CLI corrects older packs when it loads them. Screenshots and videos both benefit.
 
 ## 1.5.1 — 2026-10-23
 

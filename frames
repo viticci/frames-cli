@@ -39,7 +39,7 @@ APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/10/31/appleframes410-1793441180832-5261e17e8a.zip"
+ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/02/appleframes410-1793619065631-29622fdbc3.zip"
 ASSETS_MIN_VERSION = 4
 # Newest devices in the standard pack, each with a frame that proves it is
 # installed; doctor suggests updating packs that lack any of them.
@@ -646,7 +646,8 @@ def load_json(assets_dir):
         sys.exit(1)
     for key, entry in MISSING_DEVICE_ENTRIES.items():
         device_dict.setdefault(key, entry)
-    # The published iPad mini 2021 offsets are swapped relative to the bezel openings.
+    # Packs before 4.1.0 swap the iPad mini 2021 offsets relative to the bezel
+    # openings. Only those exact values are corrected, so 4.1.0+ is left alone.
     for key, name, x, y in (
         ("1488", "iPad mini 2021 Portrait", "142", "146"),
         ("2266", "iPad mini 2021 Landscape", "146", "142"),
