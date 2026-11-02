@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 — 2026-11-02
+
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.6.0 adds MacBook Pro with PROLED XDR Display, fixes iPad mini alignment, and moves to asset pack 4.1.0, the same pack the Apple Frames shortcut uses. Run `frames setup` after updating to download it.
 
 ### MacBook Pro with PROLED XDR Display
 
