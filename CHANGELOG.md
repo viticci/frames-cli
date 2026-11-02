@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Asset pack 4.1.1: frames without empty borders
+
+`frames setup` now downloads [AppleFrames411.zip](https://cdn.macstories.net/images/uploads/2026/11/02/appleframes411-1793621345258-74f1948d42.zip), pack version 4.1.1. Every frame is cropped to the device itself, and its offsets move with it.
+
+- **Merges in the Apple Frames shortcut have the right proportions.** The shortcut scales merged devices by the height of the whole frame image and lines up their bottom edges. Apple's artwork has empty borders of different sizes, so devices came out up to 13% too small (the 2020 MacBook Air about a third too small) and sat at different heights. An unfolded iPhone Duo next to a folded one was 2% shorter and 24 pixels higher. The CLI already measured the device itself, so its merges do not change.
+- **Framed images no longer include an empty transparent border.** A framed iPhone 18 Pro screenshot is 32 pixels narrower and 43 pixels shorter, and the device itself is pixel-identical.
+- Lone stray pixels left in some of Apple's frames are gone, including an opaque dot in the corner of the colorless iPhone 17 Pro frame.
+- `scripts/trim_pack.py` crops a pack. All colors of a device share one crop, and anything it removes is invisible: pixels at most 8/255 opaque, or isolated single pixels.
+- The ZIP is 49,732,165 bytes with SHA-256 `09735118e8d2a35eb84e9fb33579a290ffc965d7e6364398893e04d2ccf1be90`.
+
 ## 1.6.0 — 2026-11-02
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.6.0 adds MacBook Pro with PROLED XDR Display, fixes iPad mini alignment, and moves to asset pack 4.1.0, the same pack the Apple Frames shortcut uses. Run `frames setup` after updating to download it.

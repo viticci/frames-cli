@@ -39,7 +39,7 @@ APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/02/appleframes410-1793619065631-29622fdbc3.zip"
+ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/02/appleframes411-1793621345258-74f1948d42.zip"
 ASSETS_MIN_VERSION = 4
 # Newest devices in the standard pack, each with a frame that proves it is
 # installed; doctor suggests updating packs that lack any of them.

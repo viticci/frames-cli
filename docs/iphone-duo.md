@@ -4,7 +4,7 @@ Frames adds Apple's iPhone Duo bezels to screenshots and screen recordings of bo
 
 ## Set up
 
-Update Frames using your [installation method](../README.md#installation), then run `frames setup` to download the current pack, [AppleFrames410.zip](https://cdn.macstories.net/images/uploads/2026/11/02/appleframes410-1793619065631-29622fdbc3.zip). `frames doctor` tells you when your pack predates iPhone Duo.
+Update Frames using your [installation method](../README.md#installation), then run `frames setup` to download the current pack, [AppleFrames411.zip](https://cdn.macstories.net/images/uploads/2026/11/02/appleframes411-1793621345258-74f1948d42.zip). `frames doctor` tells you when your pack predates iPhone Duo.
 
 If you used the separate `Frames-Duo-Experimental` pack from Frames 1.4.1, run `frames setup` too. It saves the standard pack as your default, and you can delete the old folder. An existing `FRAMES_ASSETS` environment variable takes precedence over the saved path; update or unset it if it points at the old pack.
 
