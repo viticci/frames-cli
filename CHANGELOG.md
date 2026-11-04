@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.7.0 — 2026-11-04
+
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.0 adds iPad mini (A20 Pro) and Apple Watch Ultra 4, and moves to asset pack 4.2.0. The Apple Frames shortcut uses the same pack. Run `frames setup` after updating to download it.
+
+### iPad mini (A20 Pro)
+
+- Frames iPad mini (A20 Pro) screenshots with Apple's official bezels in Midnight and Starlight. Screenshots are 1512 × 2316 in portrait and 2316 × 1512 in landscape, verified with real captures from the device.
+- The new size has its own frame, so 1488 × 2266 screenshots from older models still use the iPad mini 2021 frame.
+
+### Apple Watch Ultra 4
+
+- Frames Apple Watch Ultra 4 screenshots with Apple's official bezels, in all six case and band combinations. Screenshots are 422 × 514, verified in the Xcode 27.1 device profile.
+- Ultra 3 has the same screen size, so Ultra 4 is now the default for 422 × 514 screenshots. Ultra 3 stays available with `--device "Watch Ultra 3"`.
+- Apple's Ultra 4 artwork tints the whole screen with 4/255 black, which would darken every screenshot by about 1.6%. The pack clears that tint, so screenshots keep their exact colors.
+
+### Asset pack 4.2.0
+
+`frames setup` now downloads [AppleFrames420.zip](https://cdn.macstories.net/images/uploads/2026/11/04/appleframes420-1793823397151-4b30e2106a.zip), pack version 4.2.0. It adds 10 frames to pack 4.1.1, and every existing frame is byte-identical.
+
+- `scripts/build_mini_ultra4_assets.py` adds Apple's PNGs with the same crop and optimization as the rest of the pack. `frames doctor` notes when a pack predates these frames.
+- The ZIP is 51,739,555 bytes with SHA-256 `44e8416a12379e93defcdc85a5cb164aea45b12aaebd9a92f88ee0c954bca79a`.
+
 ## 1.6.1 — 2026-11-02
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.6.1 moves to asset pack 4.1.1, which crops every frame to its device. Merges in the Apple Frames shortcut now get real-world proportions right, and framed images no longer carry an empty border. Run `frames setup` after updating to download the new pack.

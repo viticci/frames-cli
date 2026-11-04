@@ -5,7 +5,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 
 # Apple Frames CLI
 
-`frames` 1.6.1 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
+`frames` 1.7.0 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
 
 ## What Agents Should Know
 
@@ -205,7 +205,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/02/appleframes411-1793621345258-74f1948d42.zip` (AppleFrames411.zip, 49,732,165 bytes, SHA-256 `09735118e8d2a35eb84e9fb33579a290ffc965d7e6364398893e04d2ccf1be90`), pack version 4.1.1. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, and MacBook Pro with PROLED XDR Display. It has 293 PNGs, each cropped to its device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/04/appleframes420-1793823397151-4b30e2106a.zip` (AppleFrames420.zip, 51,739,555 bytes, SHA-256 `44e8416a12379e93defcdc85a5cb164aea45b12aaebd9a92f88ee0c954bca79a`), pack version 4.2.0. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has 303 PNGs, each cropped to its device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - `--assets` and `setup PATH` take a local folder, not a URL or ZIP file. The separate `Frames-Duo-Experimental` pack from 1.4.1 is superseded; switch users to the standard pack with `frames setup`.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
@@ -236,12 +236,12 @@ frames --merge iphone-18-pro.png duo-outer.png
 
 To capture from the simulator: `xcrun simctl io booted screenshot --display=1` for the outer display and `--display=3` for the inner display. Fold state comes from Device Hub's Closed, Book, and Open buttons. See the repository's `docs/iphone-duo.md` for capture, video, merge, and rebuild details.
 
-The standard v4 asset bundle used by `frames` 1.6.1 includes these primary families:
+The standard v4 asset bundle used by `frames` 1.7.0 includes these primary families:
 
 - iPhone: iPhone Duo (inner and outer displays), iPhone 18 Pro, iPhone 18 Pro Max, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
-- iPad: iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
+- iPad: iPad mini A20 Pro, iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
 - Mac: MacBook Pro PROLED 14, MacBook Pro PROLED 16, MacBook Neo, MacBook Pro 13, MacBook Air 2020, MacBook Air M5 13, MacBook Air M5 15, MacBook Pro M5 14, MacBook Pro M5 16, iMac M4, Studio Display, Studio Display XDR
-- Watch: Watch Series 7 41, Watch Series 7 45, Watch Series 11 42, Watch Series 11 46, Watch Ultra 2024, Watch Ultra 3
+- Watch: Watch Series 7 41, Watch Series 7 45, Watch Series 11 42, Watch Series 11 46, Watch Ultra 2024, Watch Ultra 3, Watch Ultra 4
 
 Current default variant resolution favors the newest matching frame for shared screenshot sizes:
 
@@ -256,6 +256,7 @@ Current default variant resolution favors the newest matching frame for shared s
 - `MacBook Air M5 13` shares sizes with `MacBook Air 2022`
 - `Studio Display` shares sizes with `Studio Display XDR`
 - `Watch Series 11` shares sizes with `Watch Series 10`
+- `Watch Ultra 3` (422 × 514) resolves to `Watch Ultra 4`; Ultra 3 stays selectable with `--device`. iPad mini A20 Pro is 1512 × 2316 and 2316 × 1512 and shares no size
 
 If an exact older variant is required, pass `--device` with the exact frame name instead of relying on auto-detection.
 

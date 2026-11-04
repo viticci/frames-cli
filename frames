@@ -34,12 +34,12 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.6.1"
+VERSION = "1.7.0"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/02/appleframes411-1793621345258-74f1948d42.zip"
+ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/04/appleframes420-1793823397151-4b30e2106a.zip"
 ASSETS_MIN_VERSION = 4
 # Newest devices in the standard pack, each with a frame that proves it is
 # installed; doctor suggests updating packs that lack any of them.
@@ -47,6 +47,8 @@ LATEST_PACK_FRAMES = {
     "iPhone 18 Pro": "iPhone 18 Pro Portrait",
     "iPhone Duo": "iPhone Duo Outer Open",
     "MacBook Pro with PROLED XDR Display": "MacBook Pro PROLED 14",
+    "iPad mini (A20 Pro)": "iPad mini A20 Pro Portrait",
+    "Apple Watch Ultra 4": "Watch Ultra 4",
 }
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
@@ -586,6 +588,9 @@ FRAME_COLORS = {
     "iPhone 16 Landscape":         ["Ultramarine", "Teal", "Pink", "Black", "White"],
     "iPhone 16 Plus Portrait":     ["Ultramarine", "White", "Teal", "Pink", "Black"],
     "iPhone 16 Plus Landscape":    ["Ultramarine", "Teal", "Pink", "Black", "White"],
+    "iPad mini A20 Pro Portrait":  ["Midnight", "Starlight"],
+    "iPad mini A20 Pro Landscape": ["Midnight", "Starlight"],
+    "Watch Ultra 4":               ["Black + Alpine Loop Burgundy", "Black + Ocean Band Translucent Black", "Black + Trail Loop Burgundy", "Natural + Alpine Loop Desert", "Natural + Ocean Band Translucent Gray", "Natural + Trail Loop Sand"],
     "Watch Ultra 3":               ["Black + Alpine Loop Black", "Black + Alpine Loop Light Blue", "Black + Milanese Loop", "Black + Ocean Band Anchor Blue", "Black + Ocean Band Black", "Black + Trail Loop Black Charcoal", "Natural + Alpine Loop Light Blue", "Natural + Alpine Loop Terra Cotta", "Natural + Milanese Loop", "Natural + Ocean Band Anchor Blue", "Natural + Ocean Band Neon Green", "Natural + Trail Loop Blue Bright Blue", "Natural + Trail Loop Green Neon"],
     "Watch Ultra 2024":            ["Orange Beige Trail Loop", "Blue Alpine Loop", "Orange Ocean Band", "Black + Alpine Loop Dark Green", "Black + Alpine Loop Navy", "Black + Alpine Loop Tan", "Black + Ocean Band Black", "Black + Ocean Band Ice Blue", "Black + Ocean Band Navy", "Black + Titanium Milanese Loop", "Black + Trail Loop Black", "Black + Trail Loop Blue", "Black + Trail Loop Green", "Natural + Alpine Loop Dark Green", "Natural + Alpine Loop Navy", "Natural + Alpine Loop Tan", "Natural + Ocean Band Black", "Natural + Ocean Band Ice Blue", "Natural + Ocean Band Navy", "Natural + Titanium Milanese Loop", "Natural + Trail Loop Black", "Natural + Trail Loop Blue"],
     "MacBook Air M5 13":           ["Midnight", "Silver", "Sky Blue", "Starlight"],
@@ -612,6 +617,7 @@ FRAME_VARIANTS = {
     "MacBook Pro M5 16":           ["MacBook Pro M5 16", "MacBook Pro 2021 16"],
     "MacBook Air M5 13":           ["MacBook Air M5 13", "MacBook Air 2022"],
     "Studio Display":              ["Studio Display", "Studio Display XDR"],
+    "Watch Ultra 3":               ["Watch Ultra 4", "Watch Ultra 3"],
     "Watch Series 11 42":          ["Watch Series 11 42", "Watch Series 10 42"],
     "Watch Series 11 46":          ["Watch Series 11 46", "Watch Series 10 46"],
 }

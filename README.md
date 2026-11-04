@@ -641,9 +641,9 @@ frames -f ~/screenshots/*.png
 | MacBook | Neo, Air M5 13"/15", Pro M5 14"/16", Pro 2021, Air 2020-2022, Pro 13 | Front-facing |
 | iMac | iMac M4 | 7 colors (Silver default) |
 | Studio Display | Studio Display, Studio Display XDR | 2 colors each (Light default); XDR is a variant |
-| Apple Watch | Ultra 3, Ultra 2024, Series 11, Series 10, Series 7 | Including band combinations |
+| Apple Watch | Ultra 4, Ultra 3, Ultra 2024, Series 11, Series 10, Series 7 | Including band combinations |
 
-Watch Ultra 3 supports 13 case + band combinations. Watch Series 11 supports 22 case + band combinations per size. All devices that have landscape variants support both orientations.
+Watch Ultra 4 supports 6 case + band combinations and Watch Ultra 3 supports 13. Watch Series 11 supports 22 case + band combinations per size. All devices that have landscape variants support both orientations.
 
 ---
 
