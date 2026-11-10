@@ -50,8 +50,10 @@ Screenshots follow the interface orientation, so rotate the simulator for landsc
 The partially open landscape pose is a manual frame for inner-display screenshots. It uses the perspective geometry and a reflection sampled from the original preview in Apple's Photoshop template. With a pack containing the folded assets, select it explicitly:
 
 ```bash
-frames -d "iPhone Duo Inner Partially Open Landscape" -c "Star White" inner-landscape.png
+frames -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.png
 ```
+
+`iPhone Duo Book Pose` is an alias for `iPhone Duo Inner Partially Open Landscape`.
 
 The standard pack linked above predates this pose. To add it locally, mount Apple's Duo artwork download and run the asset builder with Python, Pillow, and ImageMagick (`magick` on your PATH). ImageMagick is a new build-time dependency for extracting Apple's PSD layers. Once the pack is built, `frames setup` can install a published copy directly, and screenshot framing uses Pillow.
 
@@ -62,7 +64,7 @@ python3 scripts/build_duo_folded_assets.py \
   --output /path/to/Frames-with-folded-Duo
 ```
 
-Use `frames --assets /path/to/Frames-with-folded-Duo -d "iPhone Duo Inner Partially Open Landscape" inner-landscape.png` to try the pack. Framing uses Pillow and the generated pack. This pose is available for still images.
+Use `frames --assets /path/to/Frames-with-folded-Duo -d "iPhone Duo Book Pose" inner-landscape.png` to try the pack. Framing uses Pillow and the generated pack. This pose is available for still images.
 
 ## Videos
 

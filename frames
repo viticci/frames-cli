@@ -1011,6 +1011,9 @@ def build_device_name_index(device_dict):
             index[entry["name"]] = entry
     for name, entry in device_dict.get("variants", {}).items():
         index[name] = entry
+    book_pose = index.get("iPhone Duo Inner Partially Open Landscape")
+    if book_pose is not None:
+        index.setdefault("iPhone Duo Book Pose", book_pose)
     return index
 
 

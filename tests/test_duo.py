@@ -57,7 +57,7 @@ class DuoTests(unittest.TestCase):
             overlay.save(root / f"{name}_overlay.png")
 
             result, info = frames.frame_screenshot(
-                root / "input.png", root, catalog, force_device=name, color_arg="Star White",
+                root / "input.png", root, catalog, force_device="iPhone Duo Book Pose", color_arg="Star White",
             )
             self.assertEqual(info["device"], name)
             self.assertTrue(info["masked"])
@@ -66,7 +66,8 @@ class DuoTests(unittest.TestCase):
             self.assertEqual(result.getpixel((1, 4)), (0, 0, 0, 255))
             self.assertEqual(result.getpixel((18, 4)), (255, 255, 255, 255))
             with self.assertRaisesRegex(ValueError, "screenshots only"):
-                frames.resolve_frame_metadata(*size, root, catalog, force_device=name)
+                frames.resolve_frame_metadata(*size, root, catalog, force_device="iPhone Duo Book Pose")
+            self.assertNotIn("iPhone Duo Book Pose", frames.build_device_name_index({"variants": {}}))
 
     def test_list_shows_installed_duo_views_and_manual_selection(self):
         with tempfile.TemporaryDirectory() as directory:
