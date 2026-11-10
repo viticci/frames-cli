@@ -76,8 +76,11 @@ def trim_pack(source, destination, version, archive=None):
     if destination.exists():
         raise ValueError("Destination must not exist: {}".format(destination))
     catalog = json.loads((source / "NewFrames.json").read_text(encoding="utf-8"))
-    names = sorted({entry["name"] for entry in catalog_entries(catalog)})
-    files = frame_files(source, names)
+    entries = list(catalog_entries(catalog))
+    names = sorted({entry["name"] for entry in entries})
+    # Warped frames, masks, and overlays use absolute canvas coordinates.
+    warped = {entry["name"] for entry in entries if entry.get("warp")}
+    files = {name: paths for name, paths in frame_files(source, names).items() if name not in warped}
     destination.mkdir(parents=True)
     report = {"devices": {}, "untouched": []}
     claimed = {path for paths in files.values() for path in paths}
