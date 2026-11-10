@@ -69,6 +69,26 @@ class DuoTests(unittest.TestCase):
                 frames.resolve_frame_metadata(*size, root, catalog, force_device="iPhone Duo Book Pose")
             self.assertNotIn("iPhone Duo Book Pose", frames.build_device_name_index({"variants": {}}))
 
+    def test_laptop_pose_uses_normal_blending_and_vertical_reflection(self):
+        name = "iPhone Duo Inner Partially Open Portrait"
+        size = (12, 24)
+        warp = {
+            "regions": [{"polygon": [(0, 0), (12, 0), (12, 24), (0, 24)],
+                         "inverse": [1 / 12, 0, 0, 0, 1 / 24, 0, 0, 0]}],
+            "blend": "normal", "reflectionAxis": "y", "reflections": {"Star White": [0, 12]},
+        }
+        catalog = {"variants": {name: {"name": name, "warp": warp}}}
+        entry, _, _, _ = frames.resolve_device_entry(*size, catalog, force_device="iPhone Duo Laptop Pose")
+        result = frames.composite_warped(
+            Image.new("RGBA", size, (30, 30, 30, 255)),
+            Image.new("RGBA", size, (80, 80, 80, 255)),
+            Image.new("RGBA", size, "white"),
+            Image.new("RGBA", size),
+            entry["warp"], "Star White",
+        )
+        self.assertEqual(result.getpixel((5, 2)), (30, 30, 30, 255))
+        self.assertEqual(result.getpixel((5, 21)), (42, 42, 42, 255))
+
     def test_list_shows_installed_duo_views_and_manual_selection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

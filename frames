@@ -563,6 +563,7 @@ FRAME_COLORS = {
     "iPhone Duo Inner Portrait":   ["Night Sky", "Star White"],
     "iPhone Duo Inner Landscape":  ["Night Sky", "Star White"],
     "iPhone Duo Inner Partially Open Landscape": ["Night Sky", "Star White"],
+    "iPhone Duo Inner Partially Open Portrait": ["Night Sky", "Star White"],
     "iPhone Duo Outer Open":       ["Night Sky", "Star White"],
     "iPhone 18 Pro Portrait":      ["Burgundy", "Glacier", "Silver", "Black"],
     "iPhone 18 Pro Landscape":     ["Burgundy", "Glacier", "Silver", "Black"],
@@ -607,6 +608,7 @@ FRAME_COLORS = {
 # Older packs without iPhone 18 Pro fall back to the next entry.
 FRAME_VARIANTS = {
     "iPhone Duo Inner Landscape": ["iPhone Duo Inner Landscape", "iPhone Duo Inner Partially Open Landscape"],
+    "iPhone Duo Inner Portrait": ["iPhone Duo Inner Portrait", "iPhone Duo Inner Partially Open Portrait"],
     "iPhone 17 Portrait":          ["iPhone 18 Pro Portrait", "iPhone 17 Pro Portrait", "iPhone 17 Portrait", "iPhone 16 Pro Portrait"],
     "iPhone 17 Landscape":         ["iPhone 18 Pro Landscape", "iPhone 17 Pro Landscape", "iPhone 17 Landscape", "iPhone 16 Pro Landscape"],
     "iPhone 17 Pro Max Portrait":  ["iPhone 18 Pro Max Portrait", "iPhone 17 Pro Max Portrait", "iPhone 16 Pro Max Portrait"],
@@ -876,12 +878,12 @@ def composite(screenshot, frame, x, y):
     return Image.alpha_composite(canvas, frame)
 
 
-def composite_warped(screenshot, frame, mask, overlay, regions, reflection=None):
-    """Project the screenshot onto the display and screen-blend it with the hardware."""
+def composite_warped(screenshot, frame, mask, overlay, warp, color):
+    """Project the screenshot onto the display and composite it with the hardware."""
     if mask.size != frame.size or overlay.size != frame.size:
         raise ValueError("Warped frame, display mask, and overlay must have the same dimensions")
     display = Image.new("RGBA", frame.size)
-    for region in regions:
+    for region in warp["regions"]:
         polygon = [tuple(point) for point in region["polygon"]]
         inverse = region["inverse"]
         # The inverse maps destination pixels to normalized screenshot coordinates.
@@ -897,9 +899,13 @@ def composite_warped(screenshot, frame, mask, overlay, regions, reflection=None)
         display.alpha_composite(projected)
     opacity = ImageChops.multiply(display.getchannel("A"), mask.getchannel("R"))
     hardware = frame.convert("RGB")
-    illuminated = ImageChops.screen(hardware, display.convert("RGB"))
+    illuminated = display.convert("RGB")
+    if warp.get("blend", "screen") == "screen":
+        illuminated = ImageChops.screen(hardware, illuminated)
+    reflection = warp.get("reflections", {}).get(color)
     if reflection:
-        strip = Image.frombytes("L", (len(reflection), 1), bytes(reflection))
+        size = (1, len(reflection)) if warp.get("reflectionAxis") == "y" else (len(reflection), 1)
+        strip = Image.frombytes("L", size, bytes(reflection))
         reflection_map = strip.resize(frame.size, Image.BILINEAR)
         illuminated = ImageChops.add(illuminated, reflection_map.convert("RGB"))
     result = Image.composite(illuminated, hardware, opacity).convert("RGBA")
@@ -1014,6 +1020,9 @@ def build_device_name_index(device_dict):
     book_pose = index.get("iPhone Duo Inner Partially Open Landscape")
     if book_pose is not None:
         index.setdefault("iPhone Duo Book Pose", book_pose)
+    laptop_pose = index.get("iPhone Duo Inner Partially Open Portrait")
+    if laptop_pose is not None:
+        index.setdefault("iPhone Duo Laptop Pose", laptop_pose)
     return index
 
 
@@ -1067,13 +1076,14 @@ def frame_screenshot(
     warp = entry.get("warp")
     if warp:
         if [w, h] not in warp["inputSizes"]:
-            raise ValueError(f"{model_name} requires an iPhone Duo inner landscape screenshot")
-        mask = load_mask(assets_dir, model_name)
+            sizes = " or ".join(f"{width}x{height}" for width, height in warp["inputSizes"])
+            raise ValueError(f"{model_name} requires an iPhone Duo inner screenshot ({sizes})")
+        mask_name = frame_path.stem if warp.get("maskByColor") else model_name
+        mask = load_mask(assets_dir, mask_name)
         if mask is None:
             raise FileNotFoundError(f"Display mask missing for {model_name}")
         overlay = _load_rgba_asset_cached(str(assets_dir / f"{model_name}_overlay.png"))
-        reflection = warp.get("reflections", {}).get(color)
-        result = composite_warped(img, frame, mask, overlay, warp["regions"], reflection)
+        result = composite_warped(img, frame, mask, overlay, warp, color)
     elif has_mask:
         mask = load_mask(assets_dir, model_name)
         if mask:
