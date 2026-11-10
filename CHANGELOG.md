@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.1 — 2026-11-10
+
+- Frames the 16-inch PROLED screenshot captured at the Default display setting (3822 × 2478), its 2000 × 1297 chat copy, and the hardware's 4128 × 2694 More Space mode. Matches use both dimensions, so other images with these widths remain unsupported.
+- Fits the full screenshot to the 3472 × 2266 frame opening before masking, including an explicit target height. Native PROLED and older MacBook Pro matches stay unchanged.
+- Apple Frames shortcut 4.2.1 uses the same pack and target dimensions. Unsupported sizes stop with a readable alert before the variant lookup can use an empty model name.
+- Asset pack [AppleFrames421.zip](https://cdn.macstories.net/images/uploads/2026/11/10/appleframes421-1794327573824-2869ef1354.zip) keeps all 303 PNG assets byte-identical to 4.2.0. Only the catalog and version change. ZIP: 51,739,608 bytes; SHA-256 `ac8b00e64fdc27900982796c738a51bb1b097056c3efa6830fc7753bd35ac299`.
+
 ## 1.7.0 — 2026-11-04
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.0 adds iPad mini (A20 Pro) and Apple Watch Ultra 4, and moves to asset pack 4.2.0. The Apple Frames shortcut uses the same pack. Run `frames setup` after updating to download it.

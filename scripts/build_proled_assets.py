@@ -7,6 +7,7 @@ Run it on a pack that already has iPhone Duo (see build_duo_assets.py).
 """
 
 import argparse
+import copy
 import io
 import json
 from pathlib import Path
@@ -37,6 +38,27 @@ VIEWS = (
     {"name": "MacBook Pro PROLED 16", "source": "16-inch",
      "screen": (3472, 2266), "canvas": (4260, 2840), "opening": (394, 287, 3866, 2553), "physicalHeight": 279.5},
 )
+
+# Verified CleanShot capture from a 16-inch PROLED at the Default display setting.
+# Its chat copy is 2000x1297; More Space is read from CoreGraphics.
+SCALED_16_SIZES = ((3822, 2478), (2000, 1297), (4128, 2694))
+
+
+def add_scaled_entries(catalog):
+    """Match observed scaled captures exactly and fit the entire native opening."""
+    native = catalog["3472"]
+    for width, height in SCALED_16_SIZES:
+        entry = copy.deepcopy(native)
+        entry.update(resizeWidth=3472, resizeHeight=2266)
+        key = str(width)
+        if key not in catalog:
+            catalog[key] = {"overlap": {str(height): entry}}
+        else:
+            overlap = catalog[key].get("overlap")
+            if overlap is None or str(height) in overlap:
+                raise ValueError("Catalog already defines width {} or size {}x{}".format(width, width, height))
+            overlap[str(height)] = entry
+    return catalog
 
 
 def add_catalog_entries(catalog):
@@ -87,7 +109,7 @@ def build_pack(source, base, destination, archive=None, version=None):
         raise ValueError("Base asset version must be at least 4")
     if catalog.get("3024", {}).get("name") not in (None, "MacBook Pro M5 14"):
         raise ValueError("Unexpected 3024-wide entry in base: {}".format(catalog["3024"]))
-    add_catalog_entries(split_shared_width(catalog, 3024, 1964))
+    add_scaled_entries(add_catalog_entries(split_shared_width(catalog, 3024, 1964)))
 
     destination.parent.mkdir(parents=True, exist_ok=True)
     manifest = {"sources": SOURCES, "frames": [], "masks": []}

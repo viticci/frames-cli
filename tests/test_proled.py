@@ -47,6 +47,16 @@ class PROLEDTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             builder.add_catalog_entries(base_catalog())
 
+    def test_scaled_captures_fit_native_opening_and_reject_other_heights(self):
+        catalog = builder.add_scaled_entries(builder.add_catalog_entries(
+            builder.split_shared_width(base_catalog(), 3024, 1964)))
+        for width, height in builder.SCALED_16_SIZES:
+            entry, name, _, _ = frames.resolve_device_entry(width, height, catalog)
+            self.assertEqual(name, "MacBook Pro PROLED 16")
+            self.assertEqual(frames.resize_target(entry, width, height), (3472, 2266))
+            with self.assertRaises(ValueError):
+                frames.resolve_device_entry(width, height + 1, catalog)
+
 
 if __name__ == "__main__":
     unittest.main()

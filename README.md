@@ -107,8 +107,11 @@ Frames frames MacBook Pro with PROLED XDR Display screenshots with Apple's offic
 | --- | --- |
 | 3024 × 1986 | MacBook Pro PROLED 14 |
 | 3472 × 2266 | MacBook Pro PROLED 16 |
+| 3822 × 2478 | MacBook Pro PROLED 16 (verified CleanShot capture, Default setting) |
+| 4128 × 2694 | MacBook Pro PROLED 16 (More Space) |
+| 2000 × 1297 | MacBook Pro PROLED 16 (downsampled copy of that capture) |
 
-These are the displays' native resolutions. The Dynamic Island is drawn by the frame, so leave it out of your screenshot. 3024 × 1964 screenshots still use the M5 MacBook Pro 14 frame.
+3024 × 1986 and 3472 × 2266 are the displays' native resolutions. Frames 1.7.1 with asset pack 4.2.1 also recognizes the exact additional capture sizes above and fits them to the native opening. The Dynamic Island is drawn by the frame, so leave it out of your screenshot. 3024 × 1964 screenshots still use the M5 MacBook Pro 14 frame.
 
 ```bash
 frames -c "Space Black" proled.png

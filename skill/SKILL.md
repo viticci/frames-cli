@@ -5,7 +5,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 
 # Apple Frames CLI
 
-`frames` 1.7.0 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
+`frames` 1.7.1 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
 
 ## What Agents Should Know
 
@@ -205,7 +205,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/04/appleframes420-1793823397151-4b30e2106a.zip` (AppleFrames420.zip, 51,739,555 bytes, SHA-256 `44e8416a12379e93defcdc85a5cb164aea45b12aaebd9a92f88ee0c954bca79a`), pack version 4.2.0. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has 303 PNGs, each cropped to its device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/10/appleframes421-1794327573824-2869ef1354.zip` (AppleFrames421.zip, 51,739,608 bytes, SHA-256 `ac8b00e64fdc27900982796c738a51bb1b097056c3efa6830fc7753bd35ac299`), pack version 4.2.1. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has 303 PNGs, each cropped to its device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - `--assets` and `setup PATH` take a local folder, not a URL or ZIP file. The separate `Frames-Duo-Experimental` pack from 1.4.1 is superseded; switch users to the standard pack with `frames setup`.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
@@ -236,7 +236,7 @@ frames --merge iphone-18-pro.png duo-outer.png
 
 To capture from the simulator: `xcrun simctl io booted screenshot --display=1` for the outer display and `--display=3` for the inner display. Fold state comes from Device Hub's Closed, Book, and Open buttons. See the repository's `docs/iphone-duo.md` for capture, video, merge, and rebuild details.
 
-The standard v4 asset bundle used by `frames` 1.7.0 includes these primary families:
+The standard v4 asset bundle used by `frames` 1.7.1 includes these primary families:
 
 - iPhone: iPhone Duo (inner and outer displays), iPhone 18 Pro, iPhone 18 Pro Max, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini A20 Pro, iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
@@ -252,6 +252,7 @@ Current default variant resolution favors the newest matching frame for shared s
 - `iPhone 16` shares sizes with `iPhone 15 Pro`
 - `iPhone 16 Plus` shares sizes with `iPhone 15 Pro Max`
 - `MacBook Pro M5` shares sizes with `MacBook Pro 2021`
+- Asset pack 4.2.1 also recognizes the verified 16-inch PROLED Default-setting CleanShot capture (3822 × 2478), its downsampled 2000 × 1297 copy, and 4128 × 2694 More Space. Each requires an exact width and height and resizes to the entire 3472 × 2266 opening.
 - `MacBook Pro PROLED 14` (3024 × 1986) and `MacBook Pro PROLED 16` (3472 × 2266) come in Silver (default) and Space Black. The 14-inch shares its width with `MacBook Pro M5 14` (3024 × 1964), so width 3024 is matched by height
 - `MacBook Air M5 13` shares sizes with `MacBook Air 2022`
 - `Studio Display` shares sizes with `Studio Display XDR`

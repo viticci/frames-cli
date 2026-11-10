@@ -34,12 +34,12 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.7.0"
+VERSION = "1.7.1"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/04/appleframes420-1793823397151-4b30e2106a.zip"
+ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/10/appleframes421-1794327573824-2869ef1354.zip"
 ASSETS_MIN_VERSION = 4
 # Newest devices in the standard pack, each with a frame that proves it is
 # installed; doctor suggests updating packs that lack any of them.
