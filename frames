@@ -650,6 +650,9 @@ def load_json(assets_dir):
     except json.JSONDecodeError as e:
         print(f"{C.red('Error')}: Invalid JSON in {json_path}: {e}", file=sys.stderr)
         sys.exit(1)
+    if not isinstance(device_dict, dict):
+        print(f"{C.red('Error')}: Invalid JSON in {json_path}: expected an object with device entries", file=sys.stderr)
+        sys.exit(1)
     for key, entry in MISSING_DEVICE_ENTRIES.items():
         device_dict.setdefault(key, entry)
     # Packs before 4.1.0 swap the iPad mini 2021 offsets relative to the bezel
