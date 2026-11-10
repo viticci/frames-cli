@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "frames-cli"
-version = "1.7.0"  # Keep in sync with VERSION in frames.
+dynamic = ["version"]
 description = "Frame screenshots and screen recordings with Apple product bezels"
 readme = "README.md"
 requires-python = ">=3.8"
