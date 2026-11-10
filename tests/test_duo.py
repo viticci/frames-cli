@@ -28,6 +28,46 @@ builder = load_module("build_duo", ROOT / "scripts/build_duo_assets.py")
 
 
 class DuoTests(unittest.TestCase):
+    def test_warped_regions_stay_clipped_to_the_display(self):
+        name = "iPhone Duo Inner Partially Open Landscape"
+        size = (24, 12)
+        regions = [
+            {"polygon": [(0, 0), (11, 0), (11, 12), (0, 12)],
+             "inverse": [1 / 24, 0, 0.5, 0, 1 / 12, 0, 0, 0]},
+            {"polygon": [(12, 0), (24, 0), (24, 12), (12, 12)],
+             "inverse": [1 / 24, 0, -0.5, 0, 1 / 12, 0, 0, 0]},
+        ]
+        entry = {
+            "name": name, "x": "0", "y": "0", "mask": "yes", "colors": "yes",
+            "warp": {"inputSizes": [[24, 12]], "regions": regions,
+                     "reflections": {"Star White": [0, 12]}},
+        }
+        catalog = {"variants": {name: entry}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = Image.new("RGB", size, "red")
+            source.paste("blue", (12, 0, 24, 12))
+            source.save(root / "input.png")
+            Image.new("RGBA", size, "black").save(root / f"{name} Star White.png")
+            mask = Image.new("L", size, 255)
+            mask.putpixel((1, 4), 0)
+            mask.save(root / f"{name}_mask.png")
+            overlay = Image.new("RGBA", size)
+            overlay.putpixel((18, 4), (255, 255, 255, 255))
+            overlay.save(root / f"{name}_overlay.png")
+
+            result, info = frames.frame_screenshot(
+                root / "input.png", root, catalog, force_device=name, color_arg="Star White",
+            )
+            self.assertEqual(info["device"], name)
+            self.assertTrue(info["masked"])
+            self.assertEqual(result.getpixel((5, 4)), (0, 0, 255, 255))
+            self.assertEqual(result.getpixel((20, 4)), (255, 12, 12, 255))
+            self.assertEqual(result.getpixel((1, 4)), (0, 0, 0, 255))
+            self.assertEqual(result.getpixel((18, 4)), (255, 255, 255, 255))
+            with self.assertRaisesRegex(ValueError, "screenshots only"):
+                frames.resolve_frame_metadata(*size, root, catalog, force_device=name)
+
     def test_list_shows_installed_duo_views_and_manual_selection(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
