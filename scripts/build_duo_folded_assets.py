@@ -138,12 +138,15 @@ def reflection_profile(preview, vertical):
     return [max(0, level - columns[0]) for level in levels]
 
 
-def laptop_display_mask(preview, frame, overlay):
+def laptop_display_mask(preview, frame, camera_bounds):
     """Recover the opening from Apple's composite because the cached screen layer is cropped."""
     # The neutral placeholder raises the hardware's display gray from 14 to 30.
     difference = ImageChops.subtract(preview, frame.convert("L"))
     mask = difference.point(lambda value: min(255, round(value * 255 / 16)))
-    mask = ImageChops.lighter(mask, overlay.getchannel("A"))
+    # The camera lies inside the display. Its shadow in the merged preview
+    # should not cut a second hole in the screenshot mask.
+    if camera_bounds:
+        mask.paste(255, camera_bounds)
     return ImageChops.multiply(mask, frame.getchannel("A"))
 
 
@@ -165,7 +168,10 @@ def build_view(source, stage, orientation, canvas, input_sizes):
         for layer in ("light", "dark", "black"):
             overlay.alpha_composite(*layers[layer])
         if vertical:
-            mask = laptop_display_mask(preview, frame, overlay)
+            camera_alpha = overlay.getchannel("A")
+            mask = laptop_display_mask(preview, frame, camera_alpha.getbbox())
+            # Photoshop barely darkens the screenshot at the Laptop Pose camera.
+            overlay.putalpha(camera_alpha.point(lambda value: round(value * 0.15)))
             mask.save(stage / f"{name} {color}_mask.png")
             mask_signature = None
         else:
