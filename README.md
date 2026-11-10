@@ -63,6 +63,17 @@ export PATH="$HOME/.local/bin:$PATH"
 
 Then restart your terminal or run `source ~/.zshrc`.
 
+### Option C: Install with pip
+
+With Git installed, run this in an active virtual environment:
+
+```bash
+python -m pip install "git+https://github.com/viticci/frames-cli.git"
+frames --version
+```
+
+Pip installs Pillow automatically.
+
 ### Setup
 
 The CLI offers to download Apple Frames 4 assets when a command needs them and you run it interactively. Setup also checks video requirements and, on macOS, can install ffmpeg for you with Homebrew if it is missing. You can also set up manually:
