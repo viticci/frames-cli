@@ -34,21 +34,22 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.7.1"
+VERSION = "1.7.2"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/10/appleframes421-1794327573824-2869ef1354.zip"
 ASSETS_MIN_VERSION = 4
-# Newest devices in the standard pack, each with a frame that proves it is
-# installed; doctor suggests updating packs that lack any of them.
+# Newest devices and poses in the standard pack, each with a frame that proves
+# it is installed; doctor suggests updating packs that lack any of them.
 LATEST_PACK_FRAMES = {
     "iPhone 18 Pro": "iPhone 18 Pro Portrait",
     "iPhone Duo": "iPhone Duo Outer Open",
     "MacBook Pro with PROLED XDR Display": "MacBook Pro PROLED 14",
     "iPad mini (A20 Pro)": "iPad mini A20 Pro Portrait",
     "Apple Watch Ultra 4": "Watch Ultra 4",
+    "the iPhone Duo Book and Laptop poses": "iPhone Duo Inner Partially Open Portrait",
 }
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
@@ -626,6 +627,12 @@ FRAME_VARIANTS = {
     "Watch Series 11 46":          ["Watch Series 11 46", "Watch Series 10 46"],
 }
 
+# Short names --device accepts for frames in the asset pack.
+DEVICE_ALIASES = {
+    "iPhone Duo Book Pose": "iPhone Duo Inner Partially Open Landscape",
+    "iPhone Duo Laptop Pose": "iPhone Duo Inner Partially Open Portrait",
+}
+
 # Width keys the published NewFrames.json lacks even though the frame PNG ships.
 # The pack's own entry wins if a later release adds one.
 MISSING_DEVICE_ENTRIES = {
@@ -1017,12 +1024,9 @@ def build_device_name_index(device_dict):
             index[entry["name"]] = entry
     for name, entry in device_dict.get("variants", {}).items():
         index[name] = entry
-    book_pose = index.get("iPhone Duo Inner Partially Open Landscape")
-    if book_pose is not None:
-        index.setdefault("iPhone Duo Book Pose", book_pose)
-    laptop_pose = index.get("iPhone Duo Inner Partially Open Portrait")
-    if laptop_pose is not None:
-        index.setdefault("iPhone Duo Laptop Pose", laptop_pose)
+    for alias, name in DEVICE_ALIASES.items():
+        if name in index:
+            index.setdefault(alias, index[name])
     return index
 
 
@@ -2600,13 +2604,18 @@ def cmd_list(args):
                 print(e)
             print()
 
-    # Variants no size selects automatically, such as the iPhone Duo rear view.
+    # Frames only --device selects: variants no size picks, such as the iPhone
+    # Duo rear view, and frames with a short name, such as the Duo poses.
     automatic = {name for names in FRAME_VARIANTS.values() for name in names}
-    manual = [name for name in device_dict.get("variants", {}) if name not in automatic]
+    short_names = {name: alias for alias, name in DEVICE_ALIASES.items()}
+    manual = [name for name in device_dict.get("variants", {}) if name not in automatic or name in short_names]
     if manual:
         print(f"  {C.bold('Manual frames')} {C.dim('(select with --device)')}")
         for name in manual:
-            print(f"    {name}")
+            if name in short_names:
+                print(f"    {short_names[name]} {C.dim(f'({name})')}")
+            else:
+                print(f"    {name}")
         print()
 
     # Show variant defaults
@@ -2618,17 +2627,20 @@ def cmd_list(args):
     print()
 
 def cmd_list_colors(args):
-    """List colors for a specific device (partial match)."""
-    device = args.device_name
-    matches = [(k, v) for k, v in FRAME_COLORS.items() if device.lower() in k.lower()]
+    """List colors for a specific device (partial match on its name or short name)."""
+    device = args.device_name.lower()
+    short_names = {name: alias for alias, name in DEVICE_ALIASES.items()}
+    matches = [(k, v) for k, v in FRAME_COLORS.items()
+               if device in k.lower() or device in short_names.get(k, "").lower()]
 
     if not matches:
-        print(f"{C.red('Error')}: No device matching '{device}'", file=sys.stderr)
+        print(f"{C.red('Error')}: No device matching '{args.device_name}'", file=sys.stderr)
         sys.exit(1)
 
     print()
     for name, colors in matches:
-        print(f"  {C.bold(name)}")
+        alias = C.dim(f" ({short_names[name]})") if name in short_names else ""
+        print(f"  {C.bold(name)}{alias}")
         for i, color in enumerate(colors):
             default = C.dim(" (default)") if i == 0 else ""
             print(f"    {C.cyan(str(i+1))}. {color}{default}")

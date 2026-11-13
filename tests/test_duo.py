@@ -192,6 +192,43 @@ class DuoTests(unittest.TestCase):
                 notes = " ".join(json.loads(output.getvalue())["notes"])
                 self.assertEqual("predates iPhone Duo" in notes, not include_duo)
 
+    @mock.patch.object(frames.C, "enabled", False)
+    def test_list_colors_and_doctor_present_the_poses_a_pack_provides(self):
+        poses = {"iPhone Duo Book Pose": "iPhone Duo Inner Partially Open Landscape",
+                 "iPhone Duo Laptop Pose": "iPhone Duo Inner Partially Open Portrait"}
+        for include_poses in (True, False):
+            with self.subTest(include_poses=include_poses), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                catalog = builder.catalog_entries()
+                if include_poses:
+                    catalog["variants"].update({name: {"name": name, "warp": {}} for name in poses.values()})
+                (root / "NewFrames.json").write_text(json.dumps(catalog), encoding="utf-8")
+                (root / "version.txt").write_text("4.2.2" if include_poses else "4.2.1", encoding="utf-8")
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    frames.cmd_list(Namespace(assets=str(root)))
+                manual = output.getvalue().split("Manual frames")[1].split("Default Variants")[0]
+                self.assertIn("iPhone Duo Outer Open", manual)
+                for alias, name in poses.items():
+                    self.assertEqual(f"{alias} ({name})" in manual, include_poses)
+                self.assertEqual("Pose" in output.getvalue(), include_poses)
+                self.assertNotIn("Partially Open", output.getvalue().split("Default Variants")[1])
+
+                output = io.StringIO()
+                with mock.patch.object(frames, "CONFIG_FILE", root / "missing.json"), \
+                        contextlib.redirect_stdout(output):
+                    frames.cmd_doctor(Namespace(assets=str(root), json=True))
+                notes = " ".join(json.loads(output.getvalue())["notes"])
+                self.assertEqual("the iPhone Duo Book and Laptop poses. Run `frames setup`" in notes, not include_poses)
+                self.assertNotIn("predates iPhone Duo", notes)
+
+        # Colors come from the CLI's own table, so the short name works with any pack.
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            frames.cmd_list_colors(Namespace(device_name="laptop pose"))
+        self.assertEqual(output.getvalue().split(), "iPhone Duo Inner Partially Open Portrait (iPhone Duo Laptop Pose) "
+                         "1. Night Sky (default) 2. Star White".split())
+
     def test_mask_uses_enclosed_opening_and_preserves_partial_bezel_alpha(self):
         image = Image.new("RGBA", (16, 12))
         draw = ImageDraw.Draw(image)
