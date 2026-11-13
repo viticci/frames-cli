@@ -5,7 +5,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 
 # Apple Frames CLI
 
-`frames` 1.7.1 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
+`frames` 1.7.2 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
 
 ## What Agents Should Know
 
@@ -171,7 +171,7 @@ frames setup /path/to/Frames
 - `frames --json -m ...` returns a merged result with `merged`, `count`, and `frames`.
 - `frames --json -b N ...` returns `batches`, `batch_size`, `total`, and `frames` when there are multiple groups. A single group returns `merged`, `count`, and `frames`.
 - When proportional merge scaling is applied, per-frame `scale_factor` values are included in the JSON output. Image batch factors describe each frame within its own batch.
-- `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`.
+- `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`. `variants` lists every frame the pack can render for that input, the selected one included; it is empty when there is no other choice.
 - `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `source_dimensions`, `rotation`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `output_dimensions`, `padded`, `resize_width`, and `mask_missing`.
 - `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
 - `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs, including `output_codec`, `rotation`, `source_dimensions`, `output_dimensions`, `padded`, `preset`, `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent`.
@@ -205,7 +205,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/10/appleframes421-1794327573824-2869ef1354.zip` (AppleFrames421.zip, 51,739,608 bytes, SHA-256 `ac8b00e64fdc27900982796c738a51bb1b097056c3efa6830fc7753bd35ac299`), pack version 4.2.1. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has 303 PNGs, each cropped to its device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices, re-run `frames setup` to update it.
+- `frames setup` downloads the current asset archive from `__PACK_URL__` (AppleFrames422.zip, __PACK_BYTES__ bytes, SHA-256 `__PACK_SHA256__`), pack version 4.2.2. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo and its Book and Laptop poses, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has __PACK_PNG_COUNT__ PNGs. Device frames are cropped to the device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices or poses, re-run `frames setup` to update it.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - `--assets` and `setup PATH` take a local folder, not a URL or ZIP file. The separate `Frames-Duo-Experimental` pack from 1.4.1 is superseded; switch users to the standard pack with `frames setup`.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
@@ -234,9 +234,23 @@ frames -d "iPhone Duo Outer Open" outer-portrait.png
 frames --merge iphone-18-pro.png duo-outer.png
 ```
 
+Two partially open poses frame inner-display screenshots on a folded phone. They need `frames` 1.7.2 and asset pack 4.2.2, and they are never selected automatically:
+
+| `--device` | Input width × height | Full frame name |
+| --- | --- | --- |
+| `iPhone Duo Book Pose` | 2853 × 2007 or 2670 × 1878 | iPhone Duo Inner Partially Open Landscape |
+| `iPhone Duo Laptop Pose` | 2007 × 2853 or 1878 × 2670 | iPhone Duo Inner Partially Open Portrait |
+
+Both have Night Sky (default) and Star White finishes, and use the saved default color of iPhone Duo Inner until they have their own. Any other input size fails with an error that names the accepted sizes. Framed images are __BOOK_CANVAS__ pixels (Book Pose) and __LAPTOP_CANVAS__ pixels (Laptop Pose); screenshots are never upscaled. The poses are for still images: `frames video` rejects them as available for screenshots only. JSON output reports the full frame name as `device`. `frames list` shows the poses under manual frames when the pack has them; with an older pack, `--device "iPhone Duo Book Pose"` fails with an error that says to run `frames setup`.
+
+```bash
+frames -d "iPhone Duo Book Pose" inner-landscape.png
+frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
+```
+
 To capture from the simulator: `xcrun simctl io booted screenshot --display=1` for the outer display and `--display=3` for the inner display. Fold state comes from Device Hub's Closed, Book, and Open buttons. See the repository's `docs/iphone-duo.md` for capture, video, merge, and rebuild details.
 
-The standard v4 asset bundle used by `frames` 1.7.1 includes these primary families:
+The standard v4 asset bundle used by `frames` 1.7.2 includes these primary families:
 
 - iPhone: iPhone Duo (inner and outer displays), iPhone 18 Pro, iPhone 18 Pro Max, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini A20 Pro, iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
