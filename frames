@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import warnings
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
@@ -1321,9 +1322,16 @@ def probe_video(path):
     fps_rate = video_stream.get("avg_frame_rate") or video_stream.get("r_frame_rate") or "30/1"
     fps = _parse_rate(fps_rate)
     normalized_fps_rate = fps_rate if _valid_rate(fps_rate) else "30/1"
+    display_rotation = 0
+    for side_data in video_stream.get("side_data_list") or []:
+        try:
+            display_rotation = int(side_data.get("rotation", display_rotation))
+        except (TypeError, ValueError):
+            pass
     return {
         "width": width,
         "height": height,
+        "display_rotation": display_rotation,
         "duration": duration,
         "fps": fps,
         "fps_rate": normalized_fps_rate,
@@ -1431,6 +1439,14 @@ def _rotated_video_meta(video_meta, rotation):
     if rotation in {"clockwise", "counterclockwise"}:
         rotated["width"], rotated["height"] = video_meta["height"], video_meta["width"]
     return rotated
+
+
+def _video_display_size(video_meta):
+    """Size of the frames ffmpeg delivers: it turns a recording upright from its rotation metadata."""
+    width, height = video_meta["width"], video_meta["height"]
+    if abs(video_meta.get("display_rotation") or 0) % 180 == 90:
+        return height, width
+    return width, height
 
 
 def _video_source_filter(args):
@@ -1542,6 +1558,7 @@ def _video_info_for_path(
         verbose=verbose,
         user_defaults=user_defaults,
         device_index=device_index,
+        display_size=_video_display_size(video_meta),
     )
     return {
         "file": str(path),
@@ -1586,6 +1603,7 @@ def resolve_frame_metadata(
     verbose=False,
     user_defaults=None,
     device_index=None,
+    display_size=None,
 ):
     entry, model_name, primary_name, is_variant = resolve_device_entry(
         width, height, device_dict,
@@ -1593,8 +1611,9 @@ def resolve_frame_metadata(
         device_index=device_index,
         verbose=verbose,
     )
-    if entry.get("warp"):
-        raise ValueError(f"{model_name} is available for screenshots only")
+    warp = entry.get("warp")
+    # Only warped frames depend on the size ffmpeg delivers after it applies rotation metadata.
+    warp_size = _warp_video_size(model_name, warp, *(display_size or (width, height))) if warp else None
     has_colors = entry.get("colors") == "yes"
     color = get_color(model_name, color_arg, user_defaults=user_defaults, strict=strict_color) if has_colors else None
     frame_path = _frame_asset_path(assets_dir, model_name, color)
@@ -1603,12 +1622,24 @@ def resolve_frame_metadata(
     # Video rendering uses ffmpeg; metadata only needs the PNG header.
     with Image.open(frame_path) as frame:
         frame_size = frame.size
-    rotate_frame = asset_is_sideways(model_name, frame_size)
+    # Warped canvases are drawn as stored, like the still path.
+    rotate_frame = not warp and asset_is_sideways(model_name, frame_size)
     if rotate_frame:
         frame_size = frame_size[::-1]
 
     has_mask = entry.get("mask") == "yes"
     mask_path = assets_dir / f"{model_name}_mask.png"
+    overlay_path = None
+    if warp:
+        # A warped frame cannot be drawn without its display mask and overlay.
+        has_mask = True
+        if warp.get("maskByColor"):
+            mask_path = assets_dir / f"{frame_path.stem}_mask.png"
+        overlay_path = _warp_overlay_path(assets_dir, model_name)
+        if not mask_path.exists():
+            raise FileNotFoundError(f"Display mask missing for {model_name}")
+        if not overlay_path.exists():
+            raise FileNotFoundError(f"Overlay missing for {model_name}")
     mask_missing = has_mask and not mask_path.exists()
     rotate_mask = False
     if mask_missing:
@@ -1628,8 +1659,8 @@ def resolve_frame_metadata(
         "primary_match": primary_name,
         "is_variant": is_variant,
         "entry": entry,
-        "x": int(entry["x"]),
-        "y": int(entry["y"]),
+        "x": 0 if warp else int(entry["x"]),
+        "y": 0 if warp else int(entry["y"]),
         "color": color,
         "frame_path": str(frame_path),
         "rotate_frame": rotate_frame,
@@ -1643,6 +1674,9 @@ def resolve_frame_metadata(
         "resize_width": resize_width,
         "resize_height": resize_height,
         "physicalHeight": float(entry.get("physicalHeight", 0)),
+        "warp": warp,
+        "warp_size": warp_size,
+        "overlay_path": str(overlay_path) if overlay_path else None,
     }
 
 
@@ -1884,9 +1918,25 @@ def _run_video_export(cmd, out_path, sources, fallback_cmd=None, progress_label=
             staged_path.unlink()
 
 
+def _framed_output_filter(frame_meta, args, pad_output, merge_fps):
+    """Pad a framed canvas to even dimensions and convert it for the encoder or the merge."""
+    out_format = "rgba" if merge_fps else _video_pixel_format(args)
+    output_filters = []
+    pad_filter = _video_pad_filter(frame_meta["frame_width"], frame_meta["frame_height"], args) if pad_output else None
+    if pad_filter:
+        if out_format == "bgra":
+            output_filters.append("format=bgra")
+        output_filters.append(pad_filter)
+    # HEVC alpha merge tiles skip padding and stay in the working format until the final canvas.
+    output_filters.append(_encoder_input_filter(args) if pad_output and not merge_fps else f"format={out_format}")
+    return ",".join(output_filters)
+
+
 def _framed_video_filters(src_path, frame_meta, video_meta, args, input_index=0, prefix="", pad_output=True,
                           merge_fps=None):
     """Build one framed stream for single exports and direct video merges."""
+    if frame_meta.get("warp"):
+        return _warped_video_filters(src_path, frame_meta, video_meta, args, input_index, prefix, pad_output, merge_fps)
     inputs = ["-i", str(src_path)]
     mask_index = None
     frame_index = input_index + 1
@@ -1927,21 +1977,12 @@ def _framed_video_filters(src_path, frame_meta, video_meta, args, input_index=0,
     canvas += "[base]"
     filters.append(canvas)
     overlay_format = ":format=auto"
-    out_format = "rgba" if merge_fps else _video_pixel_format(args)
     filters.append(f"[base][{video_label}]overlay={frame_meta['x']}:{frame_meta['y']}{overlay_format}[tmp]")
     rotate_frame = "," + VIDEO_ROTATIONS["counterclockwise"] if frame_meta.get("rotate_frame") else ""
     filters.append(f"[{frame_index}:v]{STILL_LOOP}{rotate_frame}[f0]")
     frame_label = "f0"
     filters.append(f"[tmp][{frame_label}]overlay=0:0:format=auto[framed]")
-    output_filters = []
-    pad_filter = _video_pad_filter(frame_meta["frame_width"], frame_meta["frame_height"], args) if pad_output else None
-    if pad_filter:
-        if out_format == "bgra":
-            output_filters.append("format=bgra")
-        output_filters.append(pad_filter)
-    # HEVC alpha merge tiles skip padding and stay in the working format until the final canvas.
-    output_filters.append(_encoder_input_filter(args) if pad_output and not merge_fps else f"format={out_format}")
-    filters.append(f"[framed]{','.join(output_filters)}[out]")
+    filters.append(f"[framed]{_framed_output_filter(frame_meta, args, pad_output, merge_fps)}[out]")
 
     if prefix:
         for label in ("v0", "m0", "vm", "base", "tmp", "f0", "framed", "out"):
@@ -1951,8 +1992,288 @@ def _framed_video_filters(src_path, frame_meta, video_meta, args, input_index=0,
 
 STILL_LOOP = "loop=loop=-1:size=1"
 
+# ── Warped video ─────────────────────────────────────────────────────────────
+# Warped frames project the recording through one perspective transform per
+# display region. Pillow prepares the still layers once per render from the
+# catalog's warp data, and ffmpeg's perspective filter warps every frame.
+
+# Replicated pixels around the recording, so cubic samples at its edge clamp as Pillow's do.
+WARP_SOURCE_BORDER = 4
+# Spare recording pixels around the part a region samples.
+WARP_SOURCE_MARGIN = 3
+# Recordings are rarely the exact screenshot size: encoders round to even dimensions.
+WARP_ASPECT_TOLERANCE = 0.01
+
+
+def _warp_overlay_path(assets_dir, model_name):
+    """Overlay drawn above the projected recording, such as the camera."""
+    return assets_dir / f"{model_name}_overlay.png"
+
+
+def _warp_video_size(model_name, warp, width, height):
+    """Return the size a recording is projected at, or reject one with another display's shape.
+
+    The warp works in normalized coordinates, so any size with the display's shape fits."""
+    sizes = warp["inputSizes"]
+    if any(abs(width * h / (height * w) - 1) <= WARP_ASPECT_TOLERANCE for w, h in sizes):
+        return width, height
+    names = " or ".join(f"{w}x{h}" for w, h in sizes)
+    raise ValueError(
+        f"{model_name} requires an iPhone Duo inner display recording "
+        f"({names}, or another size with the same shape); this video is {width}x{height}"
+    )
+
+
+def _warp_coefficients(inverse, width, height):
+    """Scale a region's normalized inverse transform to Pillow's coefficients for a source size."""
+    return [
+        *(value * width for value in inverse[:3]),
+        *(value * height for value in inverse[3:6]),
+        *inverse[6:],
+    ]
+
+
+def _warp_sample(coefficients, x, y):
+    """Source pixel, by index, that Pillow samples for a canvas position given from the canvas corner."""
+    a, b, c, d, e, f, g, h = coefficients
+    divisor = g * x + h * y + 1
+    if abs(divisor) < 1e-9:
+        raise ValueError("Warp region is too oblique to project for video")
+    return (a * x + b * y + c) / divisor - 0.5, (d * x + e * y + f) / divisor - 0.5
+
+
+def _asset_channel(path, channel):
+    with Image.open(path) as image:
+        return image.convert("RGBA").getchannel(channel)
+
+
+def _warp_video_layers(frame_meta, work_dir):
+    """Plan each region's projection and write its opacity and reflection for ffmpeg.
+
+    This follows composite_warped: a region shows inside its polygon, later regions
+    cover earlier ones, and the display mask sets how much of the recording shows."""
+    warp = frame_meta["warp"]
+    width, height = frame_meta["warp_size"]
+    frame_alpha = _asset_channel(frame_meta["frame_path"], "A")
+    mask = _asset_channel(frame_meta["mask_path"], "R")
+    overlay_alpha = _asset_channel(frame_meta["overlay_path"], "A")
+    canvas = frame_alpha.size
+    if mask.size != canvas or overlay_alpha.size != canvas:
+        raise ValueError("Warped frame, display mask, and overlay must have the same dimensions")
+
+    coefficients = [_warp_coefficients(region["inverse"], width, height) for region in warp["regions"]]
+    covers = []
+    opaque = Image.new("L", (width, height), 255)
+    for region, values in zip(warp["regions"], coefficients):
+        cover = Image.new("L", canvas)
+        ImageDraw.Draw(cover).polygon([tuple(point) for point in region["polygon"]], fill=255)
+        # Pillow leaves pixels that sample outside the source transparent.
+        inside = opaque.transform(canvas, Image.PERSPECTIVE, values, Image.NEAREST)
+        covers.append(ImageChops.multiply(cover, inside))
+    opacity = Image.new("L", canvas)
+    for cover in covers:
+        opacity = ImageChops.lighter(opacity, cover)
+    # The frame's alpha keeps stray mask values off its antialiased silhouette.
+    opacity = ImageChops.multiply(ImageChops.multiply(opacity, mask), frame_alpha)
+    above = Image.new("L", canvas)
+    for index in reversed(range(len(covers))):
+        covers[index], above = ImageChops.subtract(covers[index], above), ImageChops.lighter(above, covers[index])
+
+    reflection = warp.get("reflections", {}).get(frame_meta["color"])
+    glare = None
+    if reflection and any(reflection):
+        size = (1, len(reflection)) if warp.get("reflectionAxis") == "y" else (len(reflection), 1)
+        glare = Image.frombytes("L", size, bytes(reflection)).resize(canvas, Image.BILINEAR)
+
+    border, margin = WARP_SOURCE_BORDER, WARP_SOURCE_MARGIN
+    regions = []
+    for index, (region, values, cover) in enumerate(zip(warp["regions"], coefficients, covers)):
+        alpha = ImageChops.multiply(opacity, cover)
+        box = alpha.getbbox()
+        if not box:
+            continue
+        left, top = box[:2]
+        box_size = (box[2] - left, box[3] - top)
+        # The part of the bordered recording the region samples: its polygon, a pixel wider, in source pixels.
+        samples = [_warp_sample(values, x + dx, y + dy)
+                   for x, y in region["polygon"] for dx in (-1, 1) for dy in (-1, 1)]
+        source = []
+        for axis, length in enumerate((width, height)):
+            low = math.floor(min(point[axis] for point in samples)) - margin + border
+            high = math.ceil(max(point[axis] for point in samples)) + margin + 1 + border
+            low = min(max(low, 0), length + 2 * border - 1)
+            source.append((low, min(max(high, low + 1), length + 2 * border)))
+        (source_x, source_right), (source_y, source_bottom) = source
+        source_size = (source_right - source_x, source_bottom - source_y)
+        # ffmpeg's perspective filter keeps the frame size, so it works at the larger of both.
+        work_size = (max(source_size[0], box_size[0]), max(source_size[1], box_size[1]))
+        corners = []
+        for y in (0, work_size[1]):
+            for x in (0, work_size[0]):
+                u, v = _warp_sample(values, left + x + 0.5, top + y + 0.5)
+                corners.append((u + border - source_x, v + border - source_y))
+        opacity_path = work_dir / f"opacity-{index}.png"
+        alpha.crop(box).save(opacity_path, compress_level=1)
+        reflection_path = None
+        if glare is not None:
+            # RGB, so ffmpeg copies the values instead of converting a gray range.
+            reflection_path = work_dir / f"reflection-{index}.png"
+            glare.crop(box).convert("RGB").save(reflection_path, compress_level=1)
+        regions.append({
+            "box": (left, top, *box_size),
+            "source": (source_x, source_y, *source_size),
+            "work_size": work_size,
+            "corners": corners,
+            "opacity_path": str(opacity_path),
+            "reflection_path": str(reflection_path) if reflection_path else None,
+        })
+    if not regions:
+        raise ValueError(f"Display mask for {frame_meta['device']} leaves no part of the display visible")
+    overlay_box = overlay_alpha.getbbox()
+    if overlay_box:
+        overlay_box = (overlay_box[0], overlay_box[1], overlay_box[2] - overlay_box[0], overlay_box[3] - overlay_box[1])
+    # The framed result keeps the hardware's alpha, plus the overlay's where it reaches further.
+    alpha_path = work_dir / "alpha.png"
+    ImageChops.screen(frame_alpha, overlay_alpha).save(alpha_path, compress_level=1)
+    return {"regions": regions, "overlay_box": overlay_box, "alpha_path": str(alpha_path)}
+
+
+@contextmanager
+def _warp_video_assets(frame_metas):
+    """Keep warped frames' ffmpeg layers in a temporary directory for the length of a render."""
+    warped = []
+    for meta in frame_metas:
+        if meta.get("warp") and not any(meta is other for other in warped):
+            warped.append(meta)
+    if not warped:
+        yield
+        return
+    with tempfile.TemporaryDirectory(prefix="frames-warp-") as directory:
+        try:
+            for index, meta in enumerate(warped):
+                work_dir = Path(directory) / str(index)
+                work_dir.mkdir()
+                meta["warp_layers"] = _warp_video_layers(meta, work_dir)
+            yield
+        finally:
+            for meta in warped:
+                meta.pop("warp_layers", None)
+
+
+def _warped_video_filters(src_path, frame_meta, video_meta, args, input_index, prefix, pad_output, merge_fps):
+    """Build one framed stream for a warped frame; the counterpart of _framed_video_filters.
+
+    The recording is projected and lit per region in planar RGB, then laid over the
+    hardware with the region's opacity, with the overlay on top. The hardware and its
+    alpha never change, so they are prepared once and repeated at the recording's rate."""
+    warp = frame_meta["warp"]
+    layers = frame_meta["warp_layers"]
+    width, height = frame_meta["warp_size"]
+    regions = layers["regions"]
+    border = WARP_SOURCE_BORDER
+    screen = warp.get("blend", "screen") == "screen"
+
+    def label(name):
+        return f"[{prefix}{name}]"
+
+    inputs = ["-i", str(src_path), "-i", frame_meta["frame_path"], "-i", frame_meta["overlay_path"]]
+    frame_index, overlay_index, next_index = input_index + 1, input_index + 2, input_index + 3
+    filters = []
+
+    source = []
+    if merge_fps:
+        source.append(f"tpad=stop_mode=clone:stop=1,fps={merge_fps}")
+    rotation_filter = _video_rotation_filter(_video_rotation(args))
+    if rotation_filter:
+        source.append(rotation_filter)
+    source += [
+        f"scale={width}:{height}", "format=gbrp",
+        f"pad=iw+{2 * border}:ih+{2 * border}:{border}:{border}",
+        f"fillborders=left={border}:right={border}:top={border}:bottom={border}:mode=smear",
+        f"split={len(regions)}",
+    ]
+    filters.append(f"[{input_index}:v]{','.join(source)}" + "".join(label(f"w{i}") for i in range(len(regions))))
+
+    transparent = _video_background(args) == "transparent"
+    rate = merge_fps or _normalize_rate(video_meta["fps_rate"])
+    duration = round(video_meta["duration"] + 1 / merge_fps, 6) if merge_fps else video_meta["duration"]
+    timing = f"{STILL_LOOP},fps={rate},trim=duration={duration}"
+    hardware = f"[{frame_index}:v]"
+    if screen:
+        # Screen blending needs the hardware under each region as well.
+        filters.append(f"{hardware}split={len(regions) + 1}{label('fs')}"
+                       + "".join(label(f"h{i}") for i in range(len(regions))))
+        hardware = label("fs")
+    if transparent:
+        # The canvas holds the hardware's colors; its alpha is restored after compositing.
+        filters.append(f"{hardware}format=gbrp,{timing}{label('c0')}")
+    else:
+        background = _background_color(_video_background(args))
+        filters.append(
+            f"color=c={background}:s={frame_meta['frame_width']}x{frame_meta['frame_height']}:r=1:d=1,"
+            f"format=gbrp{label('base')}"
+        )
+        filters.append(f"{label('base')}{hardware}overlay=0:0:format=gbrp,{timing}{label('c0')}")
+
+    for i, region in enumerate(regions):
+        left, top, box_width, box_height = region["box"]
+        source_x, source_y, source_width, source_height = region["source"]
+        work_size = region["work_size"]
+        chain = f"{label(f'w{i}')}crop={source_width}:{source_height}:{source_x}:{source_y}"
+        if work_size != (source_width, source_height):
+            chain += f",pad={work_size[0]}:{work_size[1]}:0:0"
+        corners = ":".join(f"x{n}={x!r}:y{n}={y!r}" for n, (x, y) in enumerate(region["corners"]))
+        chain += f",perspective={corners}:interpolation=cubic:sense=source"
+        if work_size != (box_width, box_height):
+            chain += f",crop={box_width}:{box_height}:0:0"
+        lit = label(f"p{i}")
+        filters.append(chain + lit)
+        if screen:
+            filters.append(
+                f"{label(f'h{i}')}crop={box_width}:{box_height}:{left}:{top},format=gbrp,{STILL_LOOP}{label(f'k{i}')}"
+            )
+            filters.append(f"{lit}{label(f'k{i}')}blend=all_mode=screen{label(f's{i}')}")
+            lit = label(f"s{i}")
+        if region["reflection_path"]:
+            inputs += ["-i", region["reflection_path"]]
+            filters.append(f"[{next_index}:v]format=gbrp,{STILL_LOOP}{label(f'g{i}')}")
+            filters.append(f"{lit}{label(f'g{i}')}blend=all_mode=addition{label(f'l{i}')}")
+            lit = label(f"l{i}")
+            next_index += 1
+        inputs += ["-i", region["opacity_path"]]
+        filters.append(f"[{next_index}:v]format=gray,{STILL_LOOP}{label(f'o{i}')}")
+        next_index += 1
+        filters.append(f"{lit}format=gbrap{label(f'a{i}')}")
+        filters.append(f"{label(f'a{i}')}{label(f'o{i}')}alphamerge{label(f't{i}')}")
+        filters.append(f"{label(f'c{i}')}{label(f't{i}')}overlay={left}:{top}:format=gbrp{label(f'c{i + 1}')}")
+
+    framed = label(f"c{len(regions)}")
+    if layers["overlay_box"]:
+        left, top, box_width, box_height = layers["overlay_box"]
+        filters.append(
+            f"[{overlay_index}:v]crop={box_width}:{box_height}:{left}:{top},format=gbrap,{STILL_LOOP}{label('ov')}"
+        )
+        filters.append(f"{framed}{label('ov')}overlay={left}:{top}:format=gbrp{label('cv')}")
+        framed = label("cv")
+    else:
+        filters.append(f"[{overlay_index}:v]nullsink")
+    if transparent:
+        inputs += ["-i", layers["alpha_path"]]
+        filters.append(f"[{next_index}:v]format=gray,{STILL_LOOP}{label('al')}")
+        next_index += 1
+        filters.append(f"{framed}format=gbrap{label('ca')}")
+        filters.append(f"{label('ca')}{label('al')}alphamerge{label('framed')}")
+        framed = label("framed")
+    filters.append(f"{framed}{_framed_output_filter(frame_meta, args, pad_output, merge_fps)}{label('out')}")
+    return inputs, filters, prefix + "out", next_index
+
 
 def render_framed_video(src_path, out_path, frame_meta, video_meta, args, progress_label=None):
+    with _warp_video_assets([frame_meta]):
+        _render_framed_video(src_path, out_path, frame_meta, video_meta, args, progress_label)
+
+
+def _render_framed_video(src_path, out_path, frame_meta, video_meta, args, progress_label):
     _validate_video_codec(args)
     ensure_output_dir(out_path.parent)
     inputs, filters, _, _ = _framed_video_filters(src_path, frame_meta, video_meta, args)
@@ -2047,6 +2368,11 @@ def _frame_body_rows(frame_meta, height):
 
 
 def render_merged_video(items, out_path, args, progress_label=None):
+    with _warp_video_assets([item["frame_meta"] for item in items]):
+        return _render_merged_video(items, out_path, args, progress_label)
+
+
+def _render_merged_video(items, out_path, args, progress_label):
     _validate_video_codec(args)
     ensure_output_dir(out_path.parent)
     hevc_alpha = _video_output_codec(args) == "hevc-alpha"
@@ -2236,6 +2562,7 @@ def cmd_video(args):
                 verbose=args.verbose,
                 user_defaults=user_defaults,
                 device_index=device_index,
+                display_size=_video_display_size(video_meta),
             )
             info = {
                 "source": str(src),
@@ -2306,7 +2633,7 @@ def cmd_video(args):
             else:
                 print(f"\n  {C.green('Merged')} {len(items)} videos → {C.bold(str(out_path))}")
                 print(_video_size_line(result_json))
-        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+        except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
             sys.exit(1)
         return
@@ -2339,7 +2666,7 @@ def cmd_video(args):
                 print(f"  {C.green('✓')} {item['info']['device']}")
                 print(f"  {C.dim('→')} {C.bold(str(out_path))}")
                 print(_video_size_line(item["info"]))
-        except (RuntimeError, OSError, subprocess.CalledProcessError) as e:
+        except (RuntimeError, ValueError, OSError, subprocess.CalledProcessError) as e:
             print(f"{C.red('Error')}: {e}", file=sys.stderr)
             sys.exit(1)
 

@@ -79,6 +79,17 @@ frames video --alpha -c "Star White" outer-recording.mp4
 
 Simulator recordings of the inner display (`xcrun simctl io booted recordVideo --display=3`) are 2006 × 2852, because video encoders need even dimensions, and they carry rotation metadata. Frames doesn't detect them automatically yet, so select the frame that matches the recording's orientation, for example `frames video -d "iPhone Duo Inner Landscape" inner-recording.mov`.
 
+The partially open poses frame recordings as well. Select the pose by name:
+
+```bash
+frames video -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.mov
+frames video -d "iPhone Duo Laptop Pose" --alpha inner-portrait.mov
+```
+
+Frames projects every video frame onto the folded display with the geometry, display mask, reflection, and camera of the screenshot poses, and the output keeps the hardware's transparency with `--alpha` or `--codec hevc-alpha`. Merging, `--rotate`, and every output codec work as they do for other frames. A framed video frame differs from the same image framed as a screenshot only in resampling: ffmpeg's cubic filter is slightly softer than Pillow's.
+
+Any recording with the inner display's shape fits, at any scale, so the simulator's 2852 × 2006 recordings work unchanged. For these two poses Frames reads the recording's rotation metadata: a simulator recording made in landscape goes to Book Pose, and one made in portrait goes to Laptop Pose. A recording with another shape is rejected instead of being stretched. The camera is drawn the same way for the whole clip.
+
 ## Merging with other devices
 
 Merged images and videos show devices at their real relative sizes. From Apple's specifications, iPhone Duo is 117.8 mm tall, 84.1 mm wide closed, and 164.6 mm wide open. Next to an iPhone 18 Pro, which is 150.0 mm tall, a closed Duo in portrait or an open Duo in landscape is about 79% of its height. Frames measures each device by its visible body, so differently padded frame images don't skew the result, and it aligns device bottoms.

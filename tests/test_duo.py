@@ -65,8 +65,10 @@ class DuoTests(unittest.TestCase):
             self.assertEqual(result.getpixel((20, 4)), (255, 12, 12, 255))
             self.assertEqual(result.getpixel((1, 4)), (0, 0, 0, 255))
             self.assertEqual(result.getpixel((18, 4)), (255, 255, 255, 255))
-            with self.assertRaisesRegex(ValueError, "screenshots only"):
-                frames.resolve_frame_metadata(*size, root, catalog, force_device="iPhone Duo Book Pose")
+            metadata = frames.resolve_frame_metadata(
+                *size, root, catalog, color_arg="Star White", force_device="iPhone Duo Book Pose",
+            )
+            self.assertEqual((metadata["device"], metadata["warp_size"]), (name, size))
             self.assertNotIn("iPhone Duo Book Pose", frames.build_device_name_index({"variants": {}}))
 
     def test_laptop_pose_uses_normal_blending_and_vertical_reflection(self):
