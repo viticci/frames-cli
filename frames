@@ -878,25 +878,43 @@ def composite(screenshot, frame, x, y):
     return Image.alpha_composite(canvas, frame)
 
 
-def composite_warped(screenshot, frame, mask, overlay, warp, color):
+# The projection is drawn at this multiple of the frame and filtered down, so
+# the screenshot's edges and the parts perspective compresses stay smooth.
+WARP_SUPERSAMPLE = 2
+
+
+def composite_warped(screenshot, frame, mask, camera, warp, color):
     """Project the screenshot onto the display and composite it with the hardware."""
-    if mask.size != frame.size or overlay.size != frame.size:
-        raise ValueError("Warped frame, display mask, and overlay must have the same dimensions")
-    display = Image.new("RGBA", frame.size)
+    if mask.size != frame.size:
+        raise ValueError("Warped frame and display mask must have the same dimensions")
+    scale = WARP_SUPERSAMPLE
+    display = Image.new("RGBA", (frame.width * scale, frame.height * scale))
     for region in warp["regions"]:
-        polygon = [tuple(point) for point in region["polygon"]]
-        inverse = region["inverse"]
-        # The inverse maps destination pixels to normalized screenshot coordinates.
-        coefficients = [
-            *(value * screenshot.width for value in inverse[:3]),
-            *(value * screenshot.height for value in inverse[3:6]),
-            *inverse[6:],
-        ]
-        projected = screenshot.transform(frame.size, Image.PERSPECTIVE, coefficients, Image.BICUBIC)
-        clip = Image.new("L", frame.size)
-        ImageDraw.Draw(clip).polygon(polygon, fill=255)
-        projected.putalpha(ImageChops.multiply(projected.getchannel("A"), clip))
-        display.alpha_composite(projected)
+        polygon = [(x * scale, y * scale) for x, y in region["polygon"]]
+        left = max(0, math.floor(min(x for x, _ in polygon)))
+        top = max(0, math.floor(min(y for _, y in polygon)))
+        size = (min(display.width, math.ceil(max(x for x, _ in polygon))) - left,
+                min(display.height, math.ceil(max(y for _, y in polygon))) - top)
+        # A region's extent is the most frame pixels the screenshot spans there.
+        # Shrinking to it first filters out detail the region cannot show, which
+        # would otherwise turn into moire where perspective compresses it.
+        detail = tuple(min(side, math.ceil(extent))
+                       for side, extent in zip(screenshot.size, region.get("extent", screenshot.size)))
+        source = screenshot if detail == screenshot.size else screenshot.resize(detail, Image.LANCZOS)
+        # The inverse maps frame pixels to normalized screenshot coordinates.
+        # Rewrite it for supersampled pixels measured from the region's corner.
+        a, b, c, d, e, f, g, h = region["inverse"]
+        a, b, d, e, g, h = (value / scale for value in (a, b, d, e, g, h))
+        c, f, w = a * left + b * top + c, d * left + e * top + f, g * left + h * top + 1
+        coefficients = [a * detail[0] / w, b * detail[0] / w, c * detail[0] / w,
+                        d * detail[1] / w, e * detail[1] / w, f * detail[1] / w, g / w, h / w]
+        projected = source.transform(size, Image.PERSPECTIVE, coefficients, Image.BICUBIC)
+        clip = Image.new("L", size)
+        ImageDraw.Draw(clip).polygon([(x - left, y - top) for x, y in polygon], fill=255)
+        # Neighboring regions both cover the pixels on their shared hinge line.
+        # Pasting replaces them, so a translucent screenshot is not doubled there.
+        display.paste(projected, (left, top), clip)
+    display = display.resize(frame.size, Image.LANCZOS)
     opacity = ImageChops.multiply(display.getchannel("A"), mask.getchannel("R"))
     hardware = frame.convert("RGB")
     illuminated = display.convert("RGB")
@@ -910,7 +928,31 @@ def composite_warped(screenshot, frame, mask, overlay, warp, color):
         illuminated = ImageChops.add(illuminated, reflection_map.convert("RGB"))
     result = Image.composite(illuminated, hardware, opacity).convert("RGBA")
     result.putalpha(frame.getchannel("A"))
-    return Image.alpha_composite(result, overlay)
+    if camera:
+        composite_camera(result, camera, warp["camera"])
+    return result
+
+
+def composite_camera(image, layers, camera):
+    """Draw the camera's layers, each over the brightness range Apple assigns it.
+
+    The layers sit side by side in one strip, bottom layer first. A Blend If
+    range is four levels of the pixels below: the layer fades in between the
+    first two, is fully visible between the middle two, and fades out between
+    the last two. This lets a dark, a mid, and a light version of the camera
+    follow the screenshot under it, as in Apple's Photoshop template.
+    """
+    width = layers.width // len(camera["blendIf"])
+    box = (camera["x"], camera["y"], camera["x"] + width, camera["y"] + layers.height)
+    for index, (start, full, hold, end) in enumerate(camera["blendIf"]):
+        ramp = [0 if level < start or level > end
+                else (level - start) / (full - start) if level < full
+                else (end - level) / (end - hold) if level > hold
+                else 1 for level in range(256)]
+        layer = layers.crop((index * width, 0, (index + 1) * width, layers.height))
+        visible = image.crop(box).convert("L").point([round(value * 255) for value in ramp])
+        layer.putalpha(ImageChops.multiply(layer.getchannel("A"), visible))
+        image.alpha_composite(layer, box[:2])
 
 def _body_rows(img):
     """Top and bottom rows of an image's visible pixels (the device, not its padding)."""
@@ -1075,15 +1117,19 @@ def frame_screenshot(
     mask_missing = False
     warp = entry.get("warp")
     if warp:
-        if [w, h] not in warp["inputSizes"]:
-            sizes = " or ".join(f"{width}x{height}" for width, height in warp["inputSizes"])
-            raise ValueError(f"{model_name} requires an iPhone Duo inner screenshot ({sizes})")
-        mask_name = frame_path.stem if warp.get("maskByColor") else model_name
-        mask = load_mask(assets_dir, mask_name)
+        mask = load_mask(assets_dir, model_name)
         if mask is None:
             raise FileNotFoundError(f"Display mask missing for {model_name}")
-        overlay = _load_rgba_asset_cached(str(assets_dir / f"{model_name}_overlay.png"))
-        result = composite_warped(img, frame, mask, overlay, warp, color)
+        try:
+            if [w, h] not in warp["inputSizes"]:
+                sizes = " or ".join(f"{width}x{height}" for width, height in warp["inputSizes"])
+                raise ValueError(f"{model_name} requires an iPhone Duo inner screenshot ({sizes})")
+            camera = (_load_rgba_asset_cached(str(assets_dir / f"{model_name}_camera.png"))
+                      if warp.get("camera") else None)
+            result = composite_warped(img, frame, mask, camera, warp, color)
+        except (KeyError, TypeError) as error:
+            # A hand-edited catalog must not end a batch with a traceback.
+            raise ValueError(f"{model_name} has an incomplete warp entry in NewFrames.json: {error}") from error
     elif has_mask:
         mask = load_mask(assets_dir, model_name)
         if mask:

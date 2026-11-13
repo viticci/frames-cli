@@ -78,7 +78,7 @@ def trim_pack(source, destination, version, archive=None):
     catalog = json.loads((source / "NewFrames.json").read_text(encoding="utf-8"))
     entries = list(catalog_entries(catalog))
     names = sorted({entry["name"] for entry in entries})
-    # Warped frames, masks, and overlays use absolute canvas coordinates.
+    # Warped frames, masks, and camera layers use absolute canvas coordinates.
     warped = {entry["name"] for entry in entries if entry.get("warp")}
     files = {name: paths for name, paths in frame_files(source, names).items() if name not in warped}
     destination.mkdir(parents=True)

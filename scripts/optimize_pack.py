@@ -3,7 +3,8 @@
 
 Requires Pillow, oxipng, and pngquant. Each frame is quantized with pngquant
 and kept only if it passes a strict visual check; otherwise the frame is
-recompressed losslessly with oxipng. Masks are always lossless. The source
+recompressed losslessly with oxipng. Masks and camera layers are data, not
+pictures, and are always lossless. The source
 pack is read-only and the destination must not exist.
 """
 
@@ -57,7 +58,7 @@ def optimize(job):
         if Image.open(source).convert("RGBA").tobytes() != Image.open(lossless).convert("RGBA").tobytes():
             raise ValueError("oxipng changed pixels in {}".format(source.name))
         best, kind, error = lossless, "lossless", None
-        if not source.stem.endswith("_mask"):
+        if not source.stem.endswith(("_mask", "_camera")):
             quantized = Path(temporary) / "quantized.png"
             result = subprocess.run(["pngquant", "--speed", "1", "--strip", "--force",
                                      "--output", str(quantized), str(source)], capture_output=True)
