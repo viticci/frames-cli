@@ -40,7 +40,7 @@ APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
 CONFIG_FILE = CONFIG_DIR / "config.json"
-ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/10/appleframes421-1794327573824-2869ef1354.zip"
+ASSETS_URL = "https://cdn.macstories.net/images/uploads/2026/11/13/appleframes422-1794588278649-fcc6c33965.zip"
 ASSETS_MIN_VERSION = 4
 # Newest devices and poses in the standard pack, each with a frame that proves
 # it is installed; doctor suggests updating packs that lack any of them.
@@ -407,7 +407,7 @@ def guided_setup(reason=None):
     else:
         print(f"  {C.bold('Apple Frames 4')} asset setup")
     print()
-    print(f"  Download device frames from {C.cyan('cdn.macstories.net')}? (~50 MB)")
+    print(f"  Download device frames from {C.cyan('cdn.macstories.net')}? (~55 MB)")
     print()
     print(f"  Install to {C.cyan(short_default)}")
     print()
@@ -732,11 +732,15 @@ def resolve_variant(model_name, device_dict):
 
 def installed_variants(model_name, device_dict):
     """List the frames the asset pack can render for a primary match, the
-    selected one included. Empty when the pack offers no other choice."""
+    selected one included. A primary whose only alternatives are poses the
+    pack lacks has no variants, as before the poses existed."""
     installed = device_dict.get("variants", {})
-    names = [name for name in FRAME_VARIANTS.get(model_name, [])
-             if name == model_name or name in installed]
-    return names if len(names) > 1 else []
+    row = FRAME_VARIANTS.get(model_name, [])
+    names = [name for name in row if name == model_name or name in installed]
+    poses = set(DEVICE_ALIASES.values())
+    if names == [model_name] and all(name in poses for name in row if name != model_name):
+        return []
+    return names
 
 
 def resolve_device_entry(width, height, device_dict, force_device=None, device_index=None, verbose=False):
@@ -794,6 +798,17 @@ def saved_default_color(base, colors, user_defaults):
         if key in user_defaults and user_defaults[key] in colors:
             return user_defaults[key]
     return None
+
+
+def color_defaults_to_save(devices, selected, user_defaults, touched):
+    """Defaults the color picker saves. A device that follows a parent's color
+    stays unsaved until the user picks a color for it, so it keeps following."""
+    defaults = {}
+    for base, colors in devices:
+        if base in COLOR_DEFAULT_PARENTS and base not in touched and base not in user_defaults:
+            continue
+        defaults[base] = colors[selected[base]]
+    return defaults
 
 
 def get_color(model_name, color_arg, user_defaults=None, strict=False):
@@ -1151,7 +1166,7 @@ def frame_screenshot(
             camera = (_load_rgba_asset_cached(str(assets_dir / f"{model_name}_camera.png"))
                       if warp.get("camera") else None)
             result = composite_warped(img, frame, mask, camera, warp, color)
-        except (KeyError, TypeError) as error:
+        except (KeyError, TypeError, AttributeError, ArithmeticError) as error:
             # A hand-edited catalog must not end a batch with a traceback.
             raise ValueError(f"{model_name} has an incomplete warp entry in NewFrames.json: {error}") from error
     elif has_mask:
@@ -3201,6 +3216,7 @@ def _colors_curses(stdscr, devices):
 
     cursor = 0
     changed = False
+    touched = set()
 
     while True:
         stdscr.clear()
@@ -3281,13 +3297,11 @@ def _colors_curses(stdscr, devices):
         elif key == ord(' '):
             base, ci = items[cursor]
             selected[base] = ci
+            touched.add(base)
             changed = True
         elif key in (ord('\n'), ord('\r')):
             if changed:
-                defaults = {}
-                for base, colors in devices:
-                    defaults[base] = colors[selected[base]]
-                cfg["default_colors"] = defaults
+                cfg["default_colors"] = color_defaults_to_save(devices, selected, user_defaults, touched)
                 save_config(cfg)
             return changed, selected, devices
         elif key in (ord('q'), 27):  # q or Esc
