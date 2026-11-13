@@ -942,9 +942,15 @@ def composite_warped(screenshot, frame, mask, camera, warp, color):
         illuminated = ImageChops.screen(hardware, illuminated)
     reflection = warp.get("reflections", {}).get(color)
     if reflection:
-        size = (1, len(reflection)) if warp.get("reflectionAxis") == "y" else (len(reflection), 1)
-        strip = Image.frombytes("L", size, bytes(reflection))
-        reflection_map = strip.resize(frame.size, Image.BILINEAR)
+        # A profile of levels along one axis. The span is the part of it, in
+        # entries, that this frame covers; the frame may be cropped from the
+        # canvas the profile was sampled across.
+        start, end = warp.get("reflectionSpan", (0, len(reflection)))
+        if warp.get("reflectionAxis") == "y":
+            strip, span = Image.frombytes("L", (1, len(reflection)), bytes(reflection)), (0, start, 1, end)
+        else:
+            strip, span = Image.frombytes("L", (len(reflection), 1), bytes(reflection)), (start, 0, end, 1)
+        reflection_map = strip.resize(frame.size, Image.BILINEAR, box=span)
         illuminated = ImageChops.add(illuminated, reflection_map.convert("RGB"))
     result = Image.composite(illuminated, hardware, opacity).convert("RGBA")
     result.putalpha(frame.getchannel("A"))
