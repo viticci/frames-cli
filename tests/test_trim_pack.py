@@ -75,6 +75,24 @@ class TrimPackTests(unittest.TestCase):
             self.assertEqual(before.getchannel("A").getbbox(), (10, 10, 115, 55))
             self.assertEqual(before.crop((10, 10, 115, 55)).tobytes(), after.tobytes())
 
+    def test_warped_frames_keep_their_canvas(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source, output = Path(directory) / "pack", Path(directory) / "out"
+            source.mkdir()
+            # A warped pose places its screenshot, mask, and camera by canvas position.
+            device((100, 60), (20, 10, 80, 50), (30, 20, 70, 40)).save(source / "Pose Landscape Red.png")
+            entry = {"name": "Pose Landscape", "x": "0", "y": "0", "colors": "yes",
+                     "warp": {"regions": [{"polygon": [[30, 20], [70, 20], [70, 40], [30, 40]]}]}}
+            (source / "NewFrames.json").write_text(json.dumps({"variants": {"Pose Landscape": entry}}))
+            (source / "version.txt").write_text("4.2.1")
+
+            report = trim_pack.trim_pack(source, output, "4.2.2")
+
+            with Image.open(output / "Pose Landscape Red.png") as frame:
+                self.assertEqual(frame.size, (100, 60))
+            self.assertEqual(json.loads((output / "NewFrames.json").read_text())["variants"]["Pose Landscape"], entry)
+            self.assertIn("Pose Landscape Red.png", report["untouched"])
+
 
 if __name__ == "__main__":
     unittest.main()

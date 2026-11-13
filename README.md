@@ -135,7 +135,16 @@ frames -c "Star White" duo.png
 frames -d "iPhone Duo Outer Open" outer-portrait.png
 ```
 
-See the [iPhone Duo guide](docs/iphone-duo.md) for capturing screenshots in the simulator, videos, merging, and known limitations.
+Frames **1.7.2 or later** with asset pack 4.2.2 also frames inner-display screenshots on a partially open iPhone Duo. Book Pose takes landscape screenshots and Laptop Pose takes portrait screenshots. Neither is selected automatically, so pick one by name. Both are for still images, not videos:
+
+```bash
+frames -d "iPhone Duo Book Pose" inner-landscape.png
+frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
+```
+
+Run `frames setup` once after updating to download the pack. Until then, `frames doctor` notes that your pack predates the poses. The poses use your saved default color for iPhone Duo Inner until you pick one for them in `frames colors`.
+
+See the [iPhone Duo guide](docs/iphone-duo.md) for capturing screenshots in the simulator, the partially open poses, videos, merging, and known limitations.
 
 ---
 
@@ -493,7 +502,7 @@ frames --json info screenshot.png
 
 ### `list`
 
-List all supported devices grouped by category. Shows pixel dimensions and available color counts.
+List all supported devices grouped by category. Shows pixel dimensions and available color counts. Frames that no screenshot size selects with your pack appear under Manual frames; select them with `--device`. They include the iPhone Duo rear view, the Book and Laptop poses, and older frames a newer default replaced, such as iPhone 17 Pro.
 
 ```bash
 frames list
@@ -513,12 +522,13 @@ frames colors
 
 ### `list-colors`
 
-Show all available colors for a specific device. Supports partial name matching.
+Show all available colors for a specific device. Supports partial name matching, including short names such as "Book Pose".
 
 ```bash
 frames list-colors "17 Pro"
 frames list-colors "MacBook"
 frames list-colors "Watch Ultra"
+frames list-colors "Book Pose"
 ```
 
 ---
@@ -633,7 +643,7 @@ frames -f ~/screenshots/*.png
 
 | Category | Devices | Notes |
 |----------|---------|-------|
-| iPhone Duo | Inner and outer displays | Portrait + landscape; 2 colors (Night Sky default); optional rear view |
+| iPhone Duo | Inner and outer displays | Portrait + landscape; 2 colors (Night Sky default); optional rear view; Book Pose and Laptop Pose for inner screenshots |
 | iPhone 18 | 18 Pro, 18 Pro Max | Portrait + landscape; 4 colors (Burgundy default); default for 17 Pro sizes |
 | iPhone 17 | 17, 17 Pro, 17 Pro Max | Portrait + landscape |
 | iPhone Air | Air | Portrait + landscape |
@@ -660,7 +670,7 @@ python3 -m unittest discover -s tests -v
 
 The video rendering tests also need `ffmpeg` and `ffprobe`; they are skipped when either tool is missing. Tests create temporary inputs and assets. The optional native HEVC-alpha test also requires macOS, a working `swiftc`, and ffmpeg HEVC alpha support. It skips when prerequisites are unavailable; otherwise, failures fail the suite. It decodes exports through AVFoundation to check transparency, masks, geometry, and opaque backgrounds.
 
-The iPhone 18 Pro tests cover the new shared-size defaults, the fallback to 17 Pro with older packs, explicit 17 Pro selection, `list`, and the `doctor` note. The Duo tests cover device listing, exact resolution matching at simulator and announced sizes, both finishes, the manual rear view, explicit image/video resize dimensions, enclosed screen masks, metadata removal, and the `doctor` note. They use small synthetic assets; the [Duo guide](docs/iphone-duo.md) describes how the pack is built and checked.
+The iPhone 18 Pro tests cover the new shared-size defaults, the fallback to 17 Pro with older packs, explicit 17 Pro selection, `list`, and the `doctor` note. The Duo tests cover device listing, exact resolution matching at simulator and announced sizes, both finishes, the manual rear view, the partially open poses, explicit image/video resize dimensions, enclosed screen masks, metadata removal, and the `doctor` note. They use small synthetic assets; the [Duo guide](docs/iphone-duo.md) describes how the pack is built and checked.
 
 ---
 

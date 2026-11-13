@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.7.2 — __RELEASE_DATE__
+
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.2 adds two partially open iPhone Duo poses for screenshots, and moves to asset pack 4.2.2. Run `frames setup` after updating to download it.
+
+### iPhone Duo Book Pose and Laptop Pose
+
+Thanks to [Frank Rupprecht](https://github.com/frankschlegel) ([#14](https://github.com/viticci/frames-cli/pull/14)):
+
+- Frames inner-display screenshots on a partially open iPhone Duo, using Apple's official artwork in Night Sky and Star White. Book Pose holds the phone like an open book and takes landscape screenshots (2853 × 2007). Laptop Pose stands it like a small laptop and takes portrait screenshots (2007 × 2853). Mockups at Apple's announced 2670 × 1878 and 1878 × 2670 work too.
+- Select a pose by name. Inner screenshots still get the flat Inner frames unless you ask for a pose:
+
+  ```bash
+  frames -d "iPhone Duo Book Pose" inner-landscape.png
+  frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
+  ```
+
+- Frames bends the screenshot across the fold with the perspective from Apple's Photoshop templates, then adds the reflection and the camera from the same templates.
+- Framed images are __BOOK_CANVAS__ pixels for Book Pose and __LAPTOP_CANVAS__ pixels for Laptop Pose. Screenshots are never upscaled.
+- The poses are for still images. `frames video` stops with a message that they are available for screenshots only.
+- The poses use your saved default color for iPhone Duo Inner until you pick one for them. `frames colors` lists them once your pack has them, and `frames list-colors "Book Pose"` finds their finishes by short name.
+- With an older pack, asking for a pose tells you the pack predates it and to run `frames setup`. `frames doctor` notes the same.
+
+### Manual frames in `frames list`
+
+- `frames list` now shows every installed frame that only `--device` selects under Manual frames. That adds the two poses with their short names, and older frames a newer default replaced, such as iPhone 17 Pro, iPhone 16 Pro, MacBook Pro 2021, and Studio Display XDR. Before, their exact names appeared in no command.
+
+### Asset pack 4.2.2
+
+`frames setup` now downloads [AppleFrames422.zip](__PACK_URL__), pack version 4.2.2. It adds the pose frames, screen masks, and camera layers to pack 4.2.1, for __PACK_PNG_COUNT__ PNGs in total. Every file from 4.2.1 is byte-identical, and the catalog only gains the two pose entries.
+
+- The Apple Frames shortcut reads the same pack. It does not use the new entries, so its output does not change.
+- `scripts/build_duo_folded_assets.py` builds the pose files from Apple's Photoshop templates. `scripts/release_pack.py` checks a new pack against the one it replaces and writes the ZIP.
+- The ZIP is __PACK_BYTES__ bytes with SHA-256 `__PACK_SHA256__`.
+
 ## 1.7.1 — 2026-11-10
 
 - Frames the 16-inch PROLED screenshot captured at the Default display setting (3822 × 2478), its 2000 × 1297 chat copy, and the hardware's 4128 × 2694 More Space mode. Matches use both dimensions, so other images with these widths remain unsupported.

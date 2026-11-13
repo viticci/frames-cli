@@ -4,6 +4,8 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import struct
+import sys
 import tempfile
 import unittest
 from argparse import Namespace
@@ -25,71 +27,146 @@ def load_module(name, path):
 
 frames = load_module("frames_duo", ROOT / "frames")
 builder = load_module("build_duo", ROOT / "scripts/build_duo_assets.py")
+sys.path.insert(0, str(ROOT / "scripts"))  # the folded builder imports its sibling
+folded = load_module("build_duo_folded", ROOT / "scripts/build_duo_folded_assets.py")
+
+BOOK = "iPhone Duo Inner Partially Open Landscape"
+LAPTOP = "iPhone Duo Inner Partially Open Portrait"
+# Maps each pixel of a 24x12 canvas to the same place in the screenshot.
+IDENTITY_24x12 = [1 / 24, 0, 0, 0, 1 / 12, 0, 0, 0]
+
+
+def warped_pack(root, name, frame, mask, warp, camera=None):
+    """Write a one-frame pack for a warped pose and return its catalog."""
+    frame.save(root / f"{name} Star White.png")
+    mask.save(root / f"{name}_mask.png")
+    if camera:
+        camera.save(root / f"{name}_camera.png")
+    return {"variants": {name: {"name": name, "x": "0", "y": "0", "mask": "yes", "colors": "yes", "warp": warp}}}
+
+POSES = {"iPhone Duo Book Pose": "iPhone Duo Inner Partially Open Landscape",
+         "iPhone Duo Laptop Pose": "iPhone Duo Inner Partially Open Portrait"}
 
 
 class DuoTests(unittest.TestCase):
-    def test_warped_regions_stay_clipped_to_the_display(self):
-        name = "iPhone Duo Inner Partially Open Landscape"
+    def test_warped_screenshot_stays_inside_its_region_the_mask_and_the_frame(self):
         size = (24, 12)
-        regions = [
-            {"polygon": [(0, 0), (11, 0), (11, 12), (0, 12)],
-             "inverse": [1 / 24, 0, 0.5, 0, 1 / 12, 0, 0, 0]},
-            {"polygon": [(12, 0), (24, 0), (24, 12), (12, 12)],
-             "inverse": [1 / 24, 0, -0.5, 0, 1 / 12, 0, 0, 0]},
-        ]
-        entry = {
-            "name": name, "x": "0", "y": "0", "mask": "yes", "colors": "yes",
-            "warp": {"inputSizes": [[24, 12]], "regions": regions,
-                     "reflections": {"Star White": [0, 12]}},
-        }
-        catalog = {"variants": {name: entry}}
+        # The transform covers the whole canvas; only the slanted polygon keeps it to the left.
+        regions = [{"polygon": [(0, 0), (12, 0), (6, 12), (0, 12)], "inverse": IDENTITY_24x12}]
+        warp = {"inputSizes": [[24, 12]], "regions": regions, "blend": "normal",
+                "camera": {"x": 2, "y": 8, "blendIf": [[0, 0, 255, 255]]}}
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            source = Image.new("RGB", size, "red")
-            source.paste("blue", (12, 0, 24, 12))
-            source.save(root / "input.png")
-            Image.new("RGBA", size, "black").save(root / f"{name} Star White.png")
+            frame = Image.new("RGBA", size, (80, 80, 80, 255))
+            frame.paste((0, 0, 0, 0), (23, 0, 24, 12))
             mask = Image.new("L", size, 255)
             mask.putpixel((1, 4), 0)
-            mask.save(root / f"{name}_mask.png")
-            overlay = Image.new("RGBA", size)
-            overlay.putpixel((18, 4), (255, 255, 255, 255))
-            overlay.save(root / f"{name}_overlay.png")
+            catalog = warped_pack(root, BOOK, frame, mask, warp, camera=Image.new("RGBA", (2, 2), "blue"))
+            Image.new("RGB", size, "red").save(root / "input.png")
+            Image.new("RGB", (12, 24), "red").save(root / "sideways.png")
 
             result, info = frames.frame_screenshot(
                 root / "input.png", root, catalog, force_device="iPhone Duo Book Pose", color_arg="Star White",
             )
-            self.assertEqual(info["device"], name)
+            self.assertEqual(info["device"], BOOK)
             self.assertTrue(info["masked"])
-            self.assertEqual(result.getpixel((5, 4)), (0, 0, 255, 255))
-            self.assertEqual(result.getpixel((20, 4)), (255, 12, 12, 255))
-            self.assertEqual(result.getpixel((1, 4)), (0, 0, 0, 255))
-            self.assertEqual(result.getpixel((18, 4)), (255, 255, 255, 255))
+            self.assertEqual(result.getpixel((5, 4)), (255, 0, 0, 255))
+            self.assertEqual(result.getpixel((10, 10)), (80, 80, 80, 255))  # outside the polygon
+            self.assertEqual(result.getpixel((18, 4)), (80, 80, 80, 255))
+            self.assertEqual(result.getpixel((1, 4)), (80, 80, 80, 255))   # outside the mask
+            self.assertEqual(result.getpixel((23, 4))[3], 0)               # outside the hardware
+            self.assertEqual(result.getpixel((2, 8)), (0, 0, 255, 255))    # the camera, on top
+            with self.assertRaisesRegex(ValueError, r"requires an iPhone Duo inner screenshot \(24x12\)"):
+                frames.frame_screenshot(root / "sideways.png", root, catalog, force_device=BOOK, color_arg="Star White")
             metadata = frames.resolve_frame_metadata(
                 *size, root, catalog, color_arg="Star White", force_device="iPhone Duo Book Pose",
             )
-            self.assertEqual((metadata["device"], metadata["warp_size"]), (name, size))
+            self.assertEqual((metadata["device"], metadata["warp_size"]), (BOOK, size))
             self.assertNotIn("iPhone Duo Book Pose", frames.build_device_name_index({"variants": {}}))
+            # A hand-edited catalog reports an error the CLI can print, not a traceback.
+            del warp["inputSizes"]
+            with self.assertRaisesRegex(ValueError, "incomplete warp entry"):
+                frames.frame_screenshot(root / "input.png", root, catalog, force_device=BOOK, color_arg="Star White")
+
+    def test_book_pose_screens_the_screenshot_and_adds_the_reflection_across(self):
+        size = (24, 12)
+        warp = {"regions": [{"polygon": [(0, 0), (24, 0), (24, 12), (0, 12)], "inverse": IDENTITY_24x12}],
+                "reflections": {"Star White": [0, 12]}}
+        result = frames.composite_warped(
+            Image.new("RGBA", size, (100, 100, 100, 255)), Image.new("RGBA", size, (80, 80, 80, 255)),
+            Image.new("RGBA", size, "white"), None, warp, "Star White",
+        )
+        # Screen: 255 - (255 - 80) * (255 - 100) / 255. Normal blending would give 100.
+        self.assertEqual(result.getpixel((3, 6)), (149, 149, 149, 255))
+        self.assertEqual(result.getpixel((20, 6)), (161, 161, 161, 255))
 
     def test_laptop_pose_uses_normal_blending_and_vertical_reflection(self):
-        name = "iPhone Duo Inner Partially Open Portrait"
         size = (12, 24)
         warp = {
             "regions": [{"polygon": [(0, 0), (12, 0), (12, 24), (0, 24)],
                          "inverse": [1 / 12, 0, 0, 0, 1 / 24, 0, 0, 0]}],
             "blend": "normal", "reflectionAxis": "y", "reflections": {"Star White": [0, 12]},
         }
-        catalog = {"variants": {name: {"name": name, "warp": warp}}}
+        catalog = {"variants": {LAPTOP: {"name": LAPTOP, "warp": warp}}}
         entry, _, _, _ = frames.resolve_device_entry(*size, catalog, force_device="iPhone Duo Laptop Pose")
         result = frames.composite_warped(
-            Image.new("RGBA", size, (30, 30, 30, 255)),
-            Image.new("RGBA", size, (80, 80, 80, 255)),
-            Image.new("RGBA", size, "white"),
-            Image.new("RGBA", size),
-            entry["warp"], "Star White",
+            Image.new("RGBA", size, (30, 30, 30, 255)), Image.new("RGBA", size, (80, 80, 80, 255)),
+            Image.new("RGBA", size, "white"), None, entry["warp"], "Star White",
         )
         self.assertEqual(result.getpixel((5, 2)), (30, 30, 30, 255))
         self.assertEqual(result.getpixel((5, 21)), (42, 42, 42, 255))
+
+    def test_translucent_screenshot_is_even_across_the_hinge(self):
+        size = (24, 12)
+        # Two regions meet on a slanted line, and both polygons fill the pixels along it.
+        warp = {"blend": "normal", "regions": [
+            {"polygon": [(0, 0), (10, 0), (14, 12), (0, 12)], "inverse": IDENTITY_24x12},
+            {"polygon": [(10, 0), (24, 0), (24, 12), (14, 12)], "inverse": IDENTITY_24x12},
+        ]}
+        frame, mask = Image.new("RGBA", size, "black"), Image.new("RGBA", size, "white")
+        for alpha in (128, 255):
+            result = frames.composite_warped(Image.new("RGBA", size, (255, 255, 255, alpha)),
+                                             frame, mask, None, warp, "Star White")
+            # No doubled hinge, and no gap.
+            self.assertEqual(result.getchannel("R").getextrema(), (alpha, alpha))
+
+    def test_projection_interpolates_and_filters(self):
+        frame, mask = Image.new("RGBA", (24, 4), "black"), Image.new("RGBA", (24, 4), "white")
+        warp = {"blend": "normal", "regions": [{"polygon": [(0, 0), (24, 0), (24, 4), (0, 4)],
+                                                "inverse": [1 / 24, 0, 0, 0, 1 / 4, 0, 0, 0]}]}
+        # Enlarged twelve times, two pixels blend into each other instead of meeting at a hard step.
+        pair = Image.new("RGBA", (2, 1), "black")
+        pair.putpixel((1, 0), (255, 255, 255, 255))
+        result = frames.composite_warped(pair, frame, mask, None, warp, "Star White")
+        self.assertEqual(result.getpixel((3, 2))[0], 0)
+        self.assertTrue(20 < result.getpixel((8, 2))[0] < 70)
+        # Squeezed to an eighth, one dark row in four averages to light gray. Sampling
+        # single rows instead would return all white or all black, the source of moire.
+        lines = Image.new("RGBA", (24, 32), "white")
+        for y in range(0, 32, 4):
+            lines.paste((0, 0, 0, 255), (0, y, 24, y + 1))
+        warp["regions"][0]["extent"] = [24, 4]
+        result = frames.composite_warped(lines, frame, mask, None, warp, "Star White")
+        for x, y in ((2, 0), (12, 1), (20, 2), (7, 3)):
+            self.assertAlmostEqual(result.getpixel((x, y))[0], 191, delta=12)
+
+    def test_camera_layers_follow_the_brightness_below(self):
+        # Three 2x1 layers in one strip, bottom first, with Apple's ranges.
+        strip = Image.new("RGBA", (6, 1))
+        colors = ((5, 5, 5, 255), (50, 40, 40, 255), (200, 220, 240, 255))
+        for index, layer in enumerate(colors):
+            strip.paste(layer, (index * 2, 0, index * 2 + 2, 1))
+        camera = {"x": 1, "y": 1, "blendIf": [[0, 0, 10, 30], [10, 30, 60, 90], [60, 90, 255, 255]]}
+        for below, expected in ((0, colors[0]), (45, colors[1]), (255, colors[2])):
+            image = Image.new("RGBA", (4, 3), (below, below, below, 255))
+            frames.composite_camera(image, strip, camera)
+            self.assertEqual(image.getpixel((1, 1)), expected)
+            self.assertEqual(image.getpixel((2, 1)), expected)
+            self.assertEqual(image.getpixel((3, 1)), (below, below, below, 255))
+        # Halfway through a range's fade the layer is half visible.
+        image = Image.new("RGBA", (4, 3), (20, 20, 20, 255))
+        frames.composite_camera(image, strip.crop((0, 0, 2, 1)), dict(camera, blendIf=[[0, 0, 10, 30]]))
+        self.assertIn(image.getpixel((1, 1))[0], (12, 13))
 
     def test_list_shows_installed_duo_views_and_manual_selection(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -194,6 +271,92 @@ class DuoTests(unittest.TestCase):
                 notes = " ".join(json.loads(output.getvalue())["notes"])
                 self.assertEqual("predates iPhone Duo" in notes, not include_duo)
 
+    def pose_catalog(self, include_poses=True):
+        """The Duo catalog, with the partially open poses of pack 4.2.2 when asked."""
+        catalog = builder.catalog_entries()
+        if include_poses:
+            catalog["variants"].update({name: {"name": name, "x": "0", "y": "0", "colors": "yes", "warp": {}}
+                                        for name in POSES.values()})
+        return catalog
+
+    def test_flat_inner_screenshots_keep_flat_frames_when_poses_are_installed(self):
+        sizes = {(2853, 2007): "Landscape", (2670, 1878): "Landscape", (2007, 2853): "Portrait", (1878, 2670): "Portrait"}
+        with tempfile.TemporaryDirectory() as directory:
+            for (width, height), orientation in sizes.items():
+                flat = f"iPhone Duo Inner {orientation}"
+                pose = f"iPhone Duo Inner Partially Open {orientation}"
+                capture = Path(directory) / f"{width}.png"
+                Image.new("RGB", (width, height)).save(capture)
+                for include_poses in (True, False):
+                    with self.subTest(size=(width, height), include_poses=include_poses):
+                        catalog = self.pose_catalog(include_poses)
+                        entry, name, primary, is_variant = frames.resolve_device_entry(width, height, catalog)
+                        self.assertEqual((name, primary, is_variant), (flat, flat, False))
+                        self.assertNotIn("warp", entry)
+                        # info offers the pose as a choice, and reports no choice without it.
+                        info = frames._info_for_image(capture, catalog)
+                        self.assertEqual((info["device"], info["is_variant"]), (flat, False))
+                        self.assertEqual(info["variants"], [flat, pose] if include_poses else [])
+
+    def test_poses_follow_the_inner_display_default_color(self):
+        for pose in POSES.values():
+            self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Inner": "Star White"}), "Star White")
+            self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Inner": "Star White",
+                                                           "iPhone Duo Inner Partially Open": "Night Sky"}), "Night Sky")
+            self.assertEqual(frames.get_color(pose, "Night Sky", {"iPhone Duo Inner": "Star White"}), "Night Sky")
+            self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Outer": "Star White"}), "Night Sky")
+        self.assertEqual(frames.get_color("iPhone Duo Inner Portrait", None,
+                                          {"iPhone Duo Inner Partially Open": "Star White"}), "Night Sky")
+
+    @mock.patch.object(frames.C, "enabled", False)
+    def test_list_colors_and_doctor_present_the_poses_a_pack_provides(self):
+        for include_poses in (True, False):
+            with self.subTest(include_poses=include_poses), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                catalog = self.pose_catalog(include_poses)
+                (root / "NewFrames.json").write_text(json.dumps(catalog), encoding="utf-8")
+                (root / "version.txt").write_text("4.2.2" if include_poses else "4.2.1", encoding="utf-8")
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    frames.cmd_list(Namespace(assets=str(root)))
+                manual = output.getvalue().split("Manual frames")[1].split("Default Variants")[0]
+                self.assertIn("iPhone Duo Outer Open", manual)
+                for alias, name in POSES.items():
+                    self.assertEqual(f"{alias} ({name})" in manual, include_poses)
+                self.assertEqual("Pose" in output.getvalue(), include_poses)
+                self.assertNotIn("Partially Open", output.getvalue().split("Default Variants")[1])
+
+                # The color picker gives the poses a row only when the pack can render them.
+                devices = dict(frames._build_device_list(root))
+                self.assertEqual("iPhone Duo Inner Partially Open" in devices, include_poses)
+                self.assertEqual(devices["iPhone Duo Inner"], ["Night Sky", "Star White"])
+
+                output = io.StringIO()
+                with mock.patch.object(frames, "CONFIG_FILE", root / "missing.json"), \
+                        contextlib.redirect_stdout(output):
+                    frames.cmd_doctor(Namespace(assets=str(root), json=True))
+                notes = " ".join(json.loads(output.getvalue())["notes"])
+                self.assertEqual("the iPhone Duo Book and Laptop poses. Run `frames setup`" in notes, not include_poses)
+                self.assertNotIn("predates iPhone Duo", notes)
+
+                # Asking for a pose an older pack lacks says how to get it.
+                for name in (*POSES, *POSES.values()):
+                    if include_poses:
+                        self.assertEqual(frames.resolve_device_entry(1, 1, catalog, force_device=name)[1], POSES.get(name, name))
+                    else:
+                        with self.assertRaisesRegex(ValueError, "predates the iPhone Duo Book and Laptop poses. Run `frames setup`"):
+                            frames.resolve_device_entry(1, 1, catalog, force_device=name)
+                with self.assertRaisesRegex(ValueError, "'iPhone Duo Sideways' not found in dictionary"):
+                    frames.resolve_device_entry(1, 1, catalog, force_device="iPhone Duo Sideways")
+
+        # Colors come from the CLI's own table, so short names work with any pack.
+        for query in ("laptop pose", "iPhone Duo Laptop Pose"):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                frames.cmd_list_colors(Namespace(device_name=query))
+            self.assertEqual(output.getvalue().split(), "iPhone Duo Inner Partially Open Portrait (iPhone Duo Laptop Pose) "
+                             "1. Night Sky (default) 2. Star White".split())
+
     def test_mask_uses_enclosed_opening_and_preserves_partial_bezel_alpha(self):
         image = Image.new("RGBA", (16, 12))
         draw = ImageDraw.Draw(image)
@@ -222,6 +385,128 @@ class DuoTests(unittest.TestCase):
             self.assertEqual(decoded.tobytes(), image.tobytes())
             self.assertNotIn("Comment", decoded.info)
             self.assertNotIn("dpi", decoded.info)
+
+
+def packed_plane(image):
+    """PackBits one channel, a literal run per row: the row byte counts, then the rows."""
+    rows = [bytes([image.width - 1]) + image.crop((0, y, image.width, y + 1)).tobytes()
+            for y in range(image.height)]
+    return struct.pack(f">{len(rows)}H", *map(len, rows)), b"".join(rows)
+
+
+def psd_layer(name, box, color, blend_if=(0, 0, 255, 255), mask=None, descriptor=None):
+    """One layer record and its channel data. A mask is (box, default, image)."""
+    left, top, right, bottom = box
+    planes = Image.new("RGBA", (right - left, bottom - top), color).split()
+    data = {channel: struct.pack(">H", 1) + b"".join(packed_plane(planes[index]))
+            for channel, index in ((-1, 3), (0, 0), (1, 1), (2, 2))}
+    block = b""
+    if mask:
+        (mask_left, mask_top, mask_right, mask_bottom), default, image = mask
+        data[-2] = struct.pack(">H", 0) + image.tobytes()  # stored raw
+        block = struct.pack(">4iBBH", mask_top, mask_left, mask_bottom, mask_right, default, 0, 0)
+    ranges = bytes((0, 0, 255, 255)) + bytes(blend_if) + bytes((0, 0, 255, 255)) * 8
+    label = bytes([len(name)]) + name.encode()
+    label += bytes(-len(label) % 4)
+    blocks = b"8BIMluni" + struct.pack(">I", 3) + b"abc\0"  # an odd-length block the reader skips
+    if descriptor:
+        blocks += b"8BIMSoLd" + struct.pack(">I", len(descriptor)) + descriptor
+    extra = (struct.pack(">I", len(block)) + block + struct.pack(">I", len(ranges)) + ranges
+             + label + blocks)
+    record = (struct.pack(">4iH", top, left, bottom, right, len(data))
+              + b"".join(struct.pack(">hI", channel, len(value)) for channel, value in data.items())
+              + b"8BIMnorm" + bytes((255, 0, 8, 0)) + struct.pack(">I", len(extra)) + extra)
+    return record, b"".join(data.values())
+
+
+def write_psd(path, size, layers, preview):
+    """Write the smallest 8-bit RGB PSD that Apple's templates resemble."""
+    records, pixels = zip(*layers)
+    info = struct.pack(">h", -len(layers)) + b"".join(records) + b"".join(pixels)
+    section = struct.pack(">I", len(info)) + info
+    counts, rows = zip(*(packed_plane(plane) for plane in Image.new("RGBA", size, preview).split()))
+    path.write_bytes(b"8BPS" + struct.pack(">H6xHIIHH", 1, 4, size[1], size[0], 8, 3)
+                     + struct.pack(">II", 0, 0) + struct.pack(">I", len(section)) + section
+                     + struct.pack(">H", 1) + b"".join(counts) + b"".join(rows))
+
+
+class FoldedBuilderTests(unittest.TestCase):
+    UNIT = [(0, 0), (1, 0), (1, 1), (0, 1)]
+
+    def test_inverse_perspective_returns_canvas_corners_to_screenshot_corners(self):
+        polygon = [(10, 5), (90, 15), (80, 45), (20, 40)]
+        a, b, c, d, e, f, g, h = folded.inverse_perspective(polygon, self.UNIT, (100, 50))
+        for (x, y), (u, v) in zip(polygon, self.UNIT):
+            w = g * x + h * y + 1
+            self.assertAlmostEqual((a * x + b * y + c) / w, u)
+            self.assertAlmostEqual((d * x + e * y + f) / w, v)
+        # Pillow reads the coefficients the same way: each corner color lands in its corner.
+        corners = Image.new("RGB", (2, 2))
+        colors = ("red", "green", "blue", "white")
+        for (u, v), color in zip(self.UNIT, colors):
+            corners.putpixel((u, v), Image.new("RGB", (1, 1), color).getpixel((0, 0)))
+        warped = corners.transform((100, 50), Image.PERSPECTIVE,
+                                   [a * 2, b * 2, c * 2, d * 2, e * 2, f * 2, g, h], Image.NEAREST)
+        for (x, y), (u, v) in zip(((16, 10), (84, 18), (76, 41), (24, 37)), self.UNIT):
+            self.assertEqual(warped.getpixel((x, y)), corners.getpixel((u, v)))
+
+    def test_region_scales_measure_canvas_pixels_per_screenshot_pixel(self):
+        box = [(0, 0), (200, 0), (200, 25), (0, 25)]
+        region = folded.scaled_regions([(box, self.UNIT)], (200, 25), (200, 25))[0]
+        # A 100x50 screenshot on 200x25 pixels: doubled across, halved down.
+        peak, low, across, down = folded.region_scales(region, (100, 50))
+        self.assertEqual([round(value, 6) for value in (peak, low, across, down)], [2, 0.5, 2, 0.5])
+
+    def test_fit_regions_shrinks_the_canvas_until_nothing_is_magnified(self):
+        # A panel tilted toward the viewer: the scale grows toward its wide bottom edge.
+        quads = [([(100, 0), (300, 0), (400, 200), (0, 200)], self.UNIT)]
+        canvas, native = (400, 200), (100, 100)
+        with self.assertRaisesRegex(ValueError, "would be magnified"):
+            folded.check_not_magnified(folded.scaled_regions(quads, canvas, canvas), native)
+        size, regions = folded.fit_regions(quads, canvas, native)
+        peak, low, across, down = folded.region_scales(regions[0], native)
+        self.assertLessEqual(peak, 1)
+        self.assertGreater(peak, 0.95)  # as large as a whole-pixel canvas allows
+        self.assertLess(low, peak / 2)
+        self.assertLess(size[0], 400)
+        self.assertEqual(regions[0]["polygon"][2], (size[0], size[1]))
+        self.assertEqual(regions[0]["extent"], [round(across * 100, 2), round(down * 100, 2)])
+
+    def test_reads_layers_masks_blend_ranges_and_preview_from_a_psd(self):
+        mask = Image.new("L", (5, 4), 255)
+        mask.putpixel((4, 3), 128)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "template.psd"
+            write_psd(path, (8, 6), [
+                psd_layer("Hardware", (0, 0, 8, 6), (10, 20, 30, 255)),
+                psd_layer("Screen Content ", (1, 1, 5, 4), (1, 2, 3, 200),
+                          mask=((2, 1, 7, 5), 0, mask), descriptor=b"descriptor"),
+                psd_layer("Black", (2, 2, 4, 3), (9, 9, 9, 40), blend_if=(0, 0, 10, 30)),
+                psd_layer("Dark", (1, 2, 4, 4), (8, 8, 8, 50), blend_if=(10, 30, 60, 90)),
+                psd_layer("Light", (2, 1, 3, 3), (7, 7, 7, 60), blend_if=(60, 90, 255, 255)),
+            ], (42, 43, 44, 255))
+            canvas, layers, preview = folded.read_psd(path)
+        self.assertEqual(canvas, (8, 6))
+        self.assertEqual(preview.getpixel((7, 5)), (42, 43, 44))
+        self.assertEqual(layers["hardware"]["image"].getpixel((7, 5)), (10, 20, 30, 255))
+        content = layers["screen content"]
+        self.assertEqual((content["image"].size, content["offset"]), ((4, 3), (1, 1)))
+        self.assertEqual(content["image"].getpixel((0, 0)), (1, 2, 3, 200))
+        self.assertEqual(content["descriptor"], b"descriptor")
+        # The mask covers the whole canvas: its default outside its box, its pixels inside.
+        self.assertEqual(content["mask"].size, (8, 6))
+        self.assertEqual([content["mask"].getpixel(point) for point in ((1, 1), (2, 1), (6, 4), (7, 4))],
+                         [0, 255, 128, 0])
+        self.assertEqual(layers["dark"]["blendIf"], (10, 30, 60, 90))
+
+        strip, camera = folded.camera_strip(layers, canvas, canvas)
+        self.assertEqual(camera, {"x": 1, "y": 1, "blendIf": [[0, 0, 10, 30], [10, 30, 60, 90], [60, 90, 255, 255]]})
+        self.assertEqual(strip.size, (9, 3))
+        # Each layer keeps its place inside its own cell: black, then dark, then light.
+        self.assertEqual(strip.getpixel((1, 1)), (9, 9, 9, 40))
+        self.assertEqual(strip.getpixel((3, 1)), (8, 8, 8, 50))
+        self.assertEqual(strip.getpixel((7, 0)), (7, 7, 7, 60))
+        self.assertEqual(strip.getpixel((0, 0))[3], 0)
 
 
 if __name__ == "__main__":
