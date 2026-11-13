@@ -1682,7 +1682,10 @@ def resolve_frame_metadata(
     )
     warp = entry.get("warp")
     # Only warped frames depend on the size ffmpeg delivers after it applies rotation metadata.
-    warp_size = _warp_video_size(model_name, warp, *(display_size or (width, height))) if warp else None
+    try:
+        warp_size = _warp_video_size(model_name, warp, *(display_size or (width, height))) if warp else None
+    except (KeyError, TypeError) as error:
+        raise ValueError(f"{model_name} has an incomplete warp entry in NewFrames.json: {error}") from error
     has_colors = entry.get("colors") == "yes"
     color = get_color(model_name, color_arg, user_defaults=user_defaults, strict=strict_color) if has_colors else None
     frame_path = _frame_asset_path(assets_dir, model_name, color)
@@ -1698,17 +1701,16 @@ def resolve_frame_metadata(
 
     has_mask = entry.get("mask") == "yes"
     mask_path = assets_dir / f"{model_name}_mask.png"
-    overlay_path = None
+    camera_path = None
     if warp:
-        # A warped frame cannot be drawn without its display mask and overlay.
+        # A warped frame cannot be drawn without its display mask and camera.
         has_mask = True
-        if warp.get("maskByColor"):
-            mask_path = assets_dir / f"{frame_path.stem}_mask.png"
-        overlay_path = _warp_overlay_path(assets_dir, model_name)
         if not mask_path.exists():
             raise FileNotFoundError(f"Display mask missing for {model_name}")
-        if not overlay_path.exists():
-            raise FileNotFoundError(f"Overlay missing for {model_name}")
+        if warp.get("camera"):
+            camera_path = _warp_camera_path(assets_dir, model_name)
+            if not camera_path.exists():
+                raise FileNotFoundError(f"Camera layers missing for {model_name}")
     mask_missing = has_mask and not mask_path.exists()
     rotate_mask = False
     if mask_missing:
@@ -1745,7 +1747,7 @@ def resolve_frame_metadata(
         "physicalHeight": float(entry.get("physicalHeight", 0)),
         "warp": warp,
         "warp_size": warp_size,
-        "overlay_path": str(overlay_path) if overlay_path else None,
+        "camera_path": str(camera_path) if camera_path else None,
     }
 
 
@@ -2063,20 +2065,31 @@ STILL_LOOP = "loop=loop=-1:size=1"
 
 # ── Warped video ─────────────────────────────────────────────────────────────
 # Warped frames project the recording through one perspective transform per
-# display region. Pillow prepares the still layers once per render from the
-# catalog's warp data, and ffmpeg's perspective filter warps every frame.
+# display region. Pillow prepares the layers that never change once per render,
+# and ffmpeg repeats composite_warped's steps on every frame: shrink the
+# recording to each region's extent, project it supersampled, reduce it, light
+# it, and lay it over the hardware under the camera.
 
 # Replicated pixels around the recording, so cubic samples at its edge clamp as Pillow's do.
 WARP_SOURCE_BORDER = 4
 # Spare recording pixels around the part a region samples.
 WARP_SOURCE_MARGIN = 3
+# Supersampled pixels kept around the visible display for the reduction filter.
+WARP_REGION_APRON = 8
 # Recordings are rarely the exact screenshot size: encoders round to even dimensions.
 WARP_ASPECT_TOLERANCE = 0.01
+# Pillow's convert("L"), which composite_camera reads the camera's backdrop with, as an ffmpeg expression.
+WARP_LUMA = "floor((19595*r(X,Y)+38470*g(X,Y)+7471*b(X,Y)+32768)/65536)"
+WARP_SCALE_FLAGS = "flags=lanczos+accurate_rnd+full_chroma_int+full_chroma_inp"
+# ffmpeg's cubic projection is softer than Pillow's. Measured against stills, this light
+# sharpening before projecting gives fine detail the still's contrast.
+WARP_KERNEL_MATCH = "convolution=" + ":".join(
+    [f"{plane}m='0 -1 0 -1 44 -1 0 -1 0'" for plane in range(3)] + [f"{plane}rdiv=0.025" for plane in range(3)])
 
 
-def _warp_overlay_path(assets_dir, model_name):
-    """Overlay drawn above the projected recording, such as the camera."""
-    return assets_dir / f"{model_name}_overlay.png"
+def _warp_camera_path(assets_dir, model_name):
+    """Strip of camera layers drawn above the projected recording."""
+    return assets_dir / f"{model_name}_camera.png"
 
 
 def _warp_video_size(model_name, warp, width, height):
@@ -2093,15 +2106,6 @@ def _warp_video_size(model_name, warp, width, height):
     )
 
 
-def _warp_coefficients(inverse, width, height):
-    """Scale a region's normalized inverse transform to Pillow's coefficients for a source size."""
-    return [
-        *(value * width for value in inverse[:3]),
-        *(value * height for value in inverse[3:6]),
-        *inverse[6:],
-    ]
-
-
 def _warp_sample(coefficients, x, y):
     """Source pixel, by index, that Pillow samples for a canvas position given from the canvas corner."""
     a, b, c, d, e, f, g, h = coefficients
@@ -2111,65 +2115,86 @@ def _warp_sample(coefficients, x, y):
     return (a * x + b * y + c) / divisor - 0.5, (d * x + e * y + f) / divisor - 0.5
 
 
-def _asset_channel(path, channel):
-    with Image.open(path) as image:
-        return image.convert("RGBA").getchannel(channel)
-
-
 def _warp_video_layers(frame_meta, work_dir):
-    """Plan each region's projection and write its opacity and reflection for ffmpeg.
-
-    This follows composite_warped: a region shows inside its polygon, later regions
-    cover earlier ones, and the display mask sets how much of the recording shows."""
+    """Plan each region's projection and write the still layers ffmpeg composites with."""
     warp = frame_meta["warp"]
     width, height = frame_meta["warp_size"]
-    frame_alpha = _asset_channel(frame_meta["frame_path"], "A")
-    mask = _asset_channel(frame_meta["mask_path"], "R")
-    overlay_alpha = _asset_channel(frame_meta["overlay_path"], "A")
-    canvas = frame_alpha.size
-    if mask.size != canvas or overlay_alpha.size != canvas:
-        raise ValueError("Warped frame, display mask, and overlay must have the same dimensions")
+    canvas = (frame_meta["frame_width"], frame_meta["frame_height"])
+    scale, border, apron = WARP_SUPERSAMPLE, WARP_SOURCE_BORDER, WARP_REGION_APRON
+    mask = _load_rgba_asset_cached(frame_meta["mask_path"])
+    if mask.size != canvas:
+        raise ValueError("Warped frame and display mask must have the same dimensions")
 
-    coefficients = [_warp_coefficients(region["inverse"], width, height) for region in warp["regions"]]
-    covers = []
-    opaque = Image.new("L", (width, height), 255)
-    for region, values in zip(warp["regions"], coefficients):
-        cover = Image.new("L", canvas)
-        ImageDraw.Draw(cover).polygon([tuple(point) for point in region["polygon"]], fill=255)
-        # Pillow leaves pixels that sample outside the source transparent.
-        inside = opaque.transform(canvas, Image.PERSPECTIVE, values, Image.NEAREST)
-        covers.append(ImageChops.multiply(cover, inside))
-    opacity = Image.new("L", canvas)
-    for cover in covers:
-        opacity = ImageChops.lighter(opacity, cover)
-    # The frame's alpha keeps stray mask values off its antialiased silhouette.
-    opacity = ImageChops.multiply(ImageChops.multiply(opacity, mask), frame_alpha)
-    above = Image.new("L", canvas)
-    for index in reversed(range(len(covers))):
-        covers[index], above = ImageChops.subtract(covers[index], above), ImageChops.lighter(above, covers[index])
+    # How much of the recording shows at each pixel never changes, and neither does the
+    # reflection. The still path gives both: a white screenshot over black hardware without
+    # blending or reflection is the opacity, and a black one filling the canvas is the reflection.
+    black = Image.new("RGBA", canvas, "black")
+    opacity = composite_warped(
+        Image.new("RGBA", (width, height), "white"), black, mask, None,
+        dict(warp, blend="normal", reflections={}), None,
+    ).getchannel("R")
+    box = opacity.getbbox()
+    if not box:
+        raise ValueError(f"Display mask for {frame_meta['device']} leaves no part of the display visible")
+    # The display tile, with room for the reduction filter around the visible part.
+    tile = (max(0, box[0] - apron // scale), max(0, box[1] - apron // scale),
+            min(canvas[0], box[2] + apron // scale), min(canvas[1], box[3] + apron // scale))
+    tile_size = (tile[2] - tile[0], tile[3] - tile[1])
+    origin = (tile[0] * scale, tile[1] * scale)
+    draft_size = (tile_size[0] * scale, tile_size[1] * scale)
+    opacity_path = work_dir / "opacity.png"
+    opacity.crop(tile).save(opacity_path, compress_level=1)
 
-    reflection = warp.get("reflections", {}).get(frame_meta["color"])
-    glare = None
-    if reflection and any(reflection):
-        size = (1, len(reflection)) if warp.get("reflectionAxis") == "y" else (len(reflection), 1)
-        glare = Image.frombytes("L", size, bytes(reflection)).resize(canvas, Image.BILINEAR)
+    reflection_path = None
+    if any(warp.get("reflections", {}).get(frame_meta["color"]) or ()):
+        everywhere = {"polygon": [(-1, -1), (canvas[0] + 1, -1), (canvas[0] + 1, canvas[1] + 1), (-1, canvas[1] + 1)],
+                      "inverse": [1 / canvas[0], 0, 0, 0, 1 / canvas[1], 0, 0, 0]}
+        glare = composite_warped(
+            Image.new("RGBA", (8, 8), "black"), black, Image.new("RGBA", canvas, "white"), None,
+            dict(warp, blend="normal", regions=[everywhere]), frame_meta["color"],
+        )
+        # RGB, like the other layers ffmpeg blends, so it copies the values instead of converting a gray range.
+        reflection_path = work_dir / "reflection.png"
+        glare.crop(tile).convert("RGB").save(reflection_path, compress_level=1)
 
-    border, margin = WARP_SOURCE_BORDER, WARP_SOURCE_MARGIN
     regions = []
-    for index, (region, values, cover) in enumerate(zip(warp["regions"], coefficients, covers)):
-        alpha = ImageChops.multiply(opacity, cover)
-        box = alpha.getbbox()
-        if not box:
+    covered = Image.new("L", draft_size)
+    for index, region in enumerate(warp["regions"]):
+        # The region's box, shrunk screenshot, and coefficients, exactly as composite_warped
+        # derives them: Pillow draws a polygon differently once a vertex is outside the image.
+        polygon = [(x * scale, y * scale) for x, y in region["polygon"]]
+        left = max(0, math.floor(min(x for x, _ in polygon)))
+        top = max(0, math.floor(min(y for _, y in polygon)))
+        size = (min(canvas[0] * scale, math.ceil(max(x for x, _ in polygon))) - left,
+                min(canvas[1] * scale, math.ceil(max(y for _, y in polygon))) - top)
+        detail = tuple(min(side, math.ceil(extent))
+                       for side, extent in zip((width, height), region.get("extent", (width, height))))
+        a, b, c, d, e, f, g, h = region["inverse"]
+        a, b, d, e, g, h = (value / scale for value in (a, b, d, e, g, h))
+        c, f, w = a * left + b * top + c, d * left + e * top + f, g * left + h * top + 1
+        values = [a * detail[0] / w, b * detail[0] / w, c * detail[0] / w,
+                  d * detail[1] / w, e * detail[1] / w, f * detail[1] / w, g / w, h / w]
+        # It shows inside its polygon, where Pillow finds a pixel of the screenshot to sample.
+        clip = Image.new("L", size)
+        ImageDraw.Draw(clip).polygon([(x - left, y - top) for x, y in polygon], fill=255)
+        clip = ImageChops.multiply(
+            clip, Image.new("L", detail, 255).transform(size, Image.PERSPECTIVE, values, Image.NEAREST))
+        # Only the part inside the draft is projected.
+        part = (max(left, origin[0]), max(top, origin[1]),
+                min(left + size[0], origin[0] + draft_size[0]), min(top + size[1], origin[1] + draft_size[1]))
+        if part[2] <= part[0] or part[3] <= part[1]:
             continue
-        left, top = box[:2]
-        box_size = (box[2] - left, box[3] - top)
-        # The part of the bordered recording the region samples: its polygon, a pixel wider, in source pixels.
-        samples = [_warp_sample(values, x + dx, y + dy)
-                   for x, y in region["polygon"] for dx in (-1, 1) for dy in (-1, 1)]
+        shift = (part[0] - left, part[1] - top)
+        box_size = (part[2] - part[0], part[3] - part[1])
+        clip = clip.crop((*shift, shift[0] + box_size[0], shift[1] + box_size[1]))
+        covered.paste(255, (part[0] - origin[0], part[1] - origin[1]), clip)
+        # The part of the bordered, shrunk recording it samples: its polygon, a pixel wider, in source pixels.
+        samples = [_warp_sample(values, x - left + dx, y - top + dy)
+                   for x, y in polygon for dx in (-scale, scale) for dy in (-scale, scale)]
         source = []
-        for axis, length in enumerate((width, height)):
-            low = math.floor(min(point[axis] for point in samples)) - margin + border
-            high = math.ceil(max(point[axis] for point in samples)) + margin + 1 + border
+        for axis, length in enumerate(detail):
+            low = math.floor(min(point[axis] for point in samples)) - WARP_SOURCE_MARGIN + border
+            high = math.ceil(max(point[axis] for point in samples)) + WARP_SOURCE_MARGIN + 1 + border
             low = min(max(low, 0), length + 2 * border - 1)
             source.append((low, min(max(high, low + 1), length + 2 * border)))
         (source_x, source_right), (source_y, source_bottom) = source
@@ -2179,32 +2204,49 @@ def _warp_video_layers(frame_meta, work_dir):
         corners = []
         for y in (0, work_size[1]):
             for x in (0, work_size[0]):
-                u, v = _warp_sample(values, left + x + 0.5, top + y + 0.5)
+                u, v = _warp_sample(values, shift[0] + x + 0.5, shift[1] + y + 0.5)
                 corners.append((u + border - source_x, v + border - source_y))
-        opacity_path = work_dir / f"opacity-{index}.png"
-        alpha.crop(box).save(opacity_path, compress_level=1)
-        reflection_path = None
-        if glare is not None:
-            # RGB, so ffmpeg copies the values instead of converting a gray range.
-            reflection_path = work_dir / f"reflection-{index}.png"
-            glare.crop(box).convert("RGB").save(reflection_path, compress_level=1)
+        clip_path = work_dir / f"clip-{index}.png"
+        # The first region is multiplied by its clip, so it needs it as RGB; later ones use it as alpha.
+        (clip if regions else clip.convert("RGB")).save(clip_path, compress_level=1)
         regions.append({
-            "box": (left, top, *box_size),
+            "detail": detail,
+            "box": (part[0] - origin[0], part[1] - origin[1], *box_size),
             "source": (source_x, source_y, *source_size),
             "work_size": work_size,
             "corners": corners,
-            "opacity_path": str(opacity_path),
-            "reflection_path": str(reflection_path) if reflection_path else None,
+            "clip_path": str(clip_path),
         })
     if not regions:
-        raise ValueError(f"Display mask for {frame_meta['device']} leaves no part of the display visible")
-    overlay_box = overlay_alpha.getbbox()
-    if overlay_box:
-        overlay_box = (overlay_box[0], overlay_box[1], overlay_box[2] - overlay_box[0], overlay_box[3] - overlay_box[1])
-    # The framed result keeps the hardware's alpha, plus the overlay's where it reaches further.
-    alpha_path = work_dir / "alpha.png"
-    ImageChops.screen(frame_alpha, overlay_alpha).save(alpha_path, compress_level=1)
-    return {"regions": regions, "overlay_box": overlay_box, "alpha_path": str(alpha_path)}
+        raise ValueError(f"No region of {frame_meta['device']} reaches its display")
+    # Where the draft is drawn. ffmpeg reduces it as it reduces the draft, to divide one by the other.
+    coverage_path = work_dir / "coverage.png"
+    covered.convert("RGB").save(coverage_path, compress_level=1)
+
+    layers = {
+        "regions": regions, "tile": (tile[0], tile[1], *tile_size), "draft_size": draft_size,
+        "opacity_path": str(opacity_path), "coverage_path": str(coverage_path),
+        "reflection_path": str(reflection_path) if reflection_path else None,
+        "camera": None,
+    }
+    camera = warp.get("camera")
+    if camera:
+        strip = _load_rgba_asset_cached(frame_meta["camera_path"])
+        layer_width = strip.width // len(camera["blendIf"])
+        # Only the part of the camera on the canvas is drawn.
+        left, top = max(0, camera["x"]), max(0, camera["y"])
+        right, bottom = min(canvas[0], camera["x"] + layer_width), min(canvas[1], camera["y"] + strip.height)
+        if right > left and bottom > top:
+            color_path, alpha_path = work_dir / "camera.png", work_dir / "camera-alpha.png"
+            strip.convert("RGB").save(color_path)
+            Image.merge("RGB", [strip.getchannel("A")] * 3).save(alpha_path)
+            layers["camera"] = {
+                "box": (left, top, right - left, bottom - top),
+                "offset": (left - camera["x"], top - camera["y"]),
+                "layer_width": layer_width, "ranges": [tuple(levels) for levels in camera["blendIf"]],
+                "color_path": str(color_path), "alpha_path": str(alpha_path),
+            }
+    return layers
 
 
 @contextmanager
@@ -2222,32 +2264,58 @@ def _warp_video_assets(frame_metas):
             for index, meta in enumerate(warped):
                 work_dir = Path(directory) / str(index)
                 work_dir.mkdir()
-                meta["warp_layers"] = _warp_video_layers(meta, work_dir)
+                try:
+                    meta["warp_layers"] = _warp_video_layers(meta, work_dir)
+                except (KeyError, TypeError) as error:
+                    raise ValueError(
+                        f"{meta['device']} has an incomplete warp entry in NewFrames.json: {error}"
+                    ) from error
             yield
         finally:
             for meta in warped:
                 meta.pop("warp_layers", None)
 
 
+def _camera_visibility(levels):
+    """ffmpeg expression for a Blend If range: a camera layer's opacity, 0-255, from the pixel under it."""
+    start, full, hold, end = levels
+    rise = f"gte(ld(0),{start})" if full <= start else f"clip((ld(0)-{start})/{full - start},0,1)"
+    fall = f"lte(ld(0),{end})" if end <= hold else f"clip(({end}-ld(0))/{end - hold},0,1)"
+    return f"st(0,{WARP_LUMA});round(255*{rise}*{fall})"
+
+
 def _warped_video_filters(src_path, frame_meta, video_meta, args, input_index, prefix, pad_output, merge_fps):
     """Build one framed stream for a warped frame; the counterpart of _framed_video_filters.
 
-    The recording is projected and lit per region in planar RGB, then laid over the
-    hardware with the region's opacity, with the overlay on top. The hardware and its
-    alpha never change, so they are prepared once and repeated at the recording's rate."""
+    Everything is planar RGB. Each region is projected supersampled into one draft of the
+    display, black where nothing lands. The draft is reduced and divided by the display's
+    coverage, as Pillow resizes an image with alpha, then lit and laid over the hardware.
+    The camera's layers are then blended by the brightness under them, frame by frame. The
+    hardware and its alpha never change, so they are prepared once and repeated at the
+    recording's rate."""
     warp = frame_meta["warp"]
     layers = frame_meta["warp_layers"]
     width, height = frame_meta["warp_size"]
     regions = layers["regions"]
+    tile_x, tile_y, tile_width, tile_height = layers["tile"]
     border = WARP_SOURCE_BORDER
     screen = warp.get("blend", "screen") == "screen"
+    transparent = _video_background(args) == "transparent"
 
     def label(name):
         return f"[{prefix}{name}]"
 
-    inputs = ["-i", str(src_path), "-i", frame_meta["frame_path"], "-i", frame_meta["overlay_path"]]
-    frame_index, overlay_index, next_index = input_index + 1, input_index + 2, input_index + 3
+    inputs = ["-i", str(src_path), "-i", frame_meta["frame_path"]]
+    frame_index, next_index = input_index + 1, input_index + 2
     filters = []
+
+    def still(path, chain, name):
+        """Add a still layer as an input that repeats for every frame."""
+        nonlocal next_index
+        inputs.extend(["-i", path])
+        filters.append(f"[{next_index}:v]{chain},{STILL_LOOP}{label(name)}")
+        next_index += 1
+        return label(name)
 
     source = []
     if merge_fps:
@@ -2255,86 +2323,120 @@ def _warped_video_filters(src_path, frame_meta, video_meta, args, input_index, p
     rotation_filter = _video_rotation_filter(_video_rotation(args))
     if rotation_filter:
         source.append(rotation_filter)
-    source += [
-        f"scale={width}:{height}", "format=gbrp",
-        f"pad=iw+{2 * border}:ih+{2 * border}:{border}:{border}",
-        f"fillborders=left={border}:right={border}:top={border}:bottom={border}:mode=smear",
-        f"split={len(regions)}",
-    ]
+    source += [f"scale={width}:{height}", "format=gbrp", f"split={len(regions)}"]
     filters.append(f"[{input_index}:v]{','.join(source)}" + "".join(label(f"w{i}") for i in range(len(regions))))
 
-    transparent = _video_background(args) == "transparent"
+    # The hardware: the canvas everything is laid over, the backdrop for screen blending, and the alpha.
     rate = merge_fps or _normalize_rate(video_meta["fps_rate"])
     duration = round(video_meta["duration"] + 1 / merge_fps, 6) if merge_fps else video_meta["duration"]
     timing = f"{STILL_LOOP},fps={rate},trim=duration={duration}"
-    hardware = f"[{frame_index}:v]"
-    if screen:
-        # Screen blending needs the hardware under each region as well.
-        filters.append(f"{hardware}split={len(regions) + 1}{label('fs')}"
-                       + "".join(label(f"h{i}") for i in range(len(regions))))
-        hardware = label("fs")
+    uses = ["fc"] + (["fh"] if screen else []) + (["fa"] if transparent else [])
+    filters.append(f"[{frame_index}:v]format=rgba,split={len(uses)}" + "".join(label(name) for name in uses))
     if transparent:
         # The canvas holds the hardware's colors; its alpha is restored after compositing.
-        filters.append(f"{hardware}format=gbrp,{timing}{label('c0')}")
+        filters.append(f"{label('fc')}format=gbrp,{timing}{label('c0')}")
+        filters.append(f"{label('fa')}alphaextract,{STILL_LOOP}{label('al')}")
     else:
         background = _background_color(_video_background(args))
         filters.append(
             f"color=c={background}:s={frame_meta['frame_width']}x{frame_meta['frame_height']}:r=1:d=1,"
             f"format=gbrp{label('base')}"
         )
-        filters.append(f"{label('base')}{hardware}overlay=0:0:format=gbrp,{timing}{label('c0')}")
+        filters.append(f"{label('base')}{label('fc')}overlay=0:0:format=gbrp,{timing}{label('c0')}")
 
+    # The draft: every region projected at the supersampled size, later regions over earlier ones.
+    draft_width, draft_height = layers["draft_size"]
     for i, region in enumerate(regions):
         left, top, box_width, box_height = region["box"]
         source_x, source_y, source_width, source_height = region["source"]
         work_size = region["work_size"]
-        chain = f"{label(f'w{i}')}crop={source_width}:{source_height}:{source_x}:{source_y}"
+        chain = label(f"w{i}")
+        if region["detail"] != (width, height):
+            chain += f"scale={region['detail'][0]}:{region['detail'][1]}:{WARP_SCALE_FLAGS},"
+        chain += (
+            f"pad=iw+{2 * border}:ih+{2 * border}:{border}:{border},"
+            f"fillborders=left={border}:right={border}:top={border}:bottom={border}:mode=smear,"
+            f"crop={source_width}:{source_height}:{source_x}:{source_y}"
+        )
+        chain += "," + WARP_KERNEL_MATCH
         if work_size != (source_width, source_height):
             chain += f",pad={work_size[0]}:{work_size[1]}:0:0"
         corners = ":".join(f"x{n}={x!r}:y{n}={y!r}" for n, (x, y) in enumerate(region["corners"]))
         chain += f",perspective={corners}:interpolation=cubic:sense=source"
         if work_size != (box_width, box_height):
             chain += f",crop={box_width}:{box_height}:0:0"
-        lit = label(f"p{i}")
-        filters.append(chain + lit)
-        if screen:
-            filters.append(
-                f"{label(f'h{i}')}crop={box_width}:{box_height}:{left}:{top},format=gbrp,{STILL_LOOP}{label(f'k{i}')}"
-            )
-            filters.append(f"{lit}{label(f'k{i}')}blend=all_mode=screen{label(f's{i}')}")
-            lit = label(f"s{i}")
-        if region["reflection_path"]:
-            inputs += ["-i", region["reflection_path"]]
-            filters.append(f"[{next_index}:v]format=gbrp,{STILL_LOOP}{label(f'g{i}')}")
-            filters.append(f"{lit}{label(f'g{i}')}blend=all_mode=addition{label(f'l{i}')}")
-            lit = label(f"l{i}")
-            next_index += 1
-        inputs += ["-i", region["opacity_path"]]
-        filters.append(f"[{next_index}:v]format=gray,{STILL_LOOP}{label(f'o{i}')}")
-        next_index += 1
-        filters.append(f"{lit}format=gbrap{label(f'a{i}')}")
-        filters.append(f"{label(f'a{i}')}{label(f'o{i}')}alphamerge{label(f't{i}')}")
-        filters.append(f"{label(f'c{i}')}{label(f't{i}')}overlay={left}:{top}:format=gbrp{label(f'c{i + 1}')}")
+        if i == 0:
+            clip = still(region["clip_path"], "format=gbrp", "m0")
+            filters.append(f"{chain}{label('p0')}")
+            filters.append(f"{label('p0')}{clip}blend=all_mode=multiply,"
+                           f"pad={draft_width}:{draft_height}:{left}:{top}{label('d0')}")
+            continue
+        filters.append(f"{chain},format=gbrap{label(f'p{i}')}")
+        clip = still(region["clip_path"], "format=gray", f"m{i}")
+        filters.append(f"{label(f'p{i}')}{clip}alphamerge{label(f'q{i}')}")
+        filters.append(f"{label(f'd{i - 1}')}{label(f'q{i}')}overlay={left}:{top}:format=gbrp{label(f'd{i}')}")
+    lit = label("lit")
+    coverage = still(layers["coverage_path"], f"format=gbrp,scale={tile_width}:{tile_height}:{WARP_SCALE_FLAGS}", "cov")
+    filters.append(f"{label(f'd{len(regions) - 1}')}scale={tile_width}:{tile_height}:{WARP_SCALE_FLAGS}{label('pm')}")
+    # Pillow's division, spelled out: ffmpeg's unpremultiply filter differs between versions.
+    divide = "if(y*lt(y,255),min(255,floor(x*255/y)),x)"
+    filters.append(f"{label('pm')}{coverage}lut2=c0='{divide}':c1='{divide}':c2='{divide}'{lit}")
 
-    framed = label(f"c{len(regions)}")
-    if layers["overlay_box"]:
-        left, top, box_width, box_height = layers["overlay_box"]
+    if screen:
         filters.append(
-            f"[{overlay_index}:v]crop={box_width}:{box_height}:{left}:{top},format=gbrap,{STILL_LOOP}{label('ov')}"
+            f"{label('fh')}crop={tile_width}:{tile_height}:{tile_x}:{tile_y},format=gbrp,{STILL_LOOP}{label('hw')}"
         )
-        filters.append(f"{framed}{label('ov')}overlay={left}:{top}:format=gbrp{label('cv')}")
+        filters.append(f"{lit}{label('hw')}blend=all_mode=screen{label('ls')}")
+        lit = label("ls")
+    if layers["reflection_path"]:
+        glare = still(layers["reflection_path"], "format=gbrp", "gl")
+        filters.append(f"{lit}{glare}blend=all_mode=addition{label('lg')}")
+        lit = label("lg")
+    opacity = still(layers["opacity_path"], "format=gray", "op")
+    filters.append(f"{lit}format=gbrap{label('la')}")
+    filters.append(f"{label('la')}{opacity}alphamerge{label('lo')}")
+    filters.append(f"{label('c0')}{label('lo')}overlay={tile_x}:{tile_y}:format=gbrp{label('c1')}")
+    framed = label("c1")
+
+    camera = layers["camera"]
+    if camera:
+        left, top, box_width, box_height = camera["box"]
+        count = len(camera["ranges"])
+        filters.append(f"{framed}split{label('cm')}{label('cc')}")
+        filters.append(f"{label('cc')}crop={box_width}:{box_height}:{left}:{top}{label('k0')}")
+        for kind, path in (("kc", camera["color_path"]), ("ka", camera["alpha_path"])):
+            inputs.extend(["-i", path])
+            filters.append(f"[{next_index}:v]format=gbrp,split={count}"
+                           + "".join(label(f"{kind}s{i}") for i in range(count)))
+            next_index += 1
+            for i in range(count):
+                x, y = i * camera["layer_width"] + camera["offset"][0], camera["offset"][1]
+                filters.append(f"{label(f'{kind}s{i}')}crop={box_width}:{box_height}:{x}:{y},"
+                               f"{STILL_LOOP}{label(f'{kind}{i}')}")
+        for i, levels in enumerate(camera["ranges"]):
+            # A layer shows by the brightness of what is under it, including the layers before it.
+            shown = _camera_visibility(levels)
+            filters.append(f"{label(f'k{i}')}split{label(f'ku{i}')}{label(f'kl{i}')}")
+            filters.append(f"{label(f'kl{i}')}geq=r='{shown}':g='{shown}':b='{shown}'{label(f'kv{i}')}")
+            filters.append(f"{label(f'kv{i}')}{label(f'ka{i}')}blend=all_mode=multiply{label(f'km{i}')}")
+            filters.append(f"{label(f'ku{i}')}{label(f'kc{i}')}{label(f'km{i}')}maskedmerge{label(f'k{i + 1}')}")
+        filters.append(f"{label(f'k{count}')}format=gbrap{label('kt')}")
+        filters.append(f"{label('cm')}{label('kt')}overlay={left}:{top}:format=gbrp{label('cv')}")
         framed = label("cv")
-    else:
-        filters.append(f"[{overlay_index}:v]nullsink")
     if transparent:
-        inputs += ["-i", layers["alpha_path"]]
-        filters.append(f"[{next_index}:v]format=gray,{STILL_LOOP}{label('al')}")
-        next_index += 1
         filters.append(f"{framed}format=gbrap{label('ca')}")
         filters.append(f"{label('ca')}{label('al')}alphamerge{label('framed')}")
         framed = label("framed")
     filters.append(f"{framed}{_framed_output_filter(frame_meta, args, pad_output, merge_fps)}{label('out')}")
     return inputs, filters, prefix + "out", next_index
+
+
+def _warp_thread_args(frame_metas):
+    """Let warped renders filter on every core; ffmpeg stops at 16 threads by default."""
+    cores = os.cpu_count() or 1
+    if cores > 16 and any(meta.get("warp") for meta in frame_metas):
+        return ["-filter_complex_threads", str(min(cores, 32))]
+    return []
 
 
 def render_framed_video(src_path, out_path, frame_meta, video_meta, args, progress_label=None):
@@ -2350,6 +2452,7 @@ def _render_framed_video(src_path, out_path, frame_meta, video_meta, args, progr
     fallback_enc_args, _ = _encoder_args(args, use_hardware=False, prefer_software=True)
     base_cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+        *_warp_thread_args([frame_meta]),
         *inputs,
         "-filter_complex", ";".join(filters),
         "-map", "[out]",
@@ -2554,6 +2657,7 @@ def _render_merged_video(items, out_path, args, progress_label):
     def merge_cmd(enc_args):
         return [
             "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            *_warp_thread_args([item["frame_meta"] for item in items]),
             *input_args,
             "-filter_complex", ";".join(filters),
             *map_args,

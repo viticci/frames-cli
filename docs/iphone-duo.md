@@ -60,7 +60,7 @@ Book Pose accepts 2853 × 2007 screenshots and Laptop Pose accepts 2007 × 2853 
 
 The poses need Frames 1.7.2 or later and asset pack 4.2.2. Run `frames setup` to download the pack. With an older pack, asking for a pose tells you to run `frames setup`, and `frames doctor` notes that the pack predates the poses. `frames list` shows them under Manual frames once they are installed. Framing uses Pillow only.
 
-Both poses are for still images. `frames video` stops with a message that they are available for screenshots only.
+Both poses frame screen recordings as well as screenshots; see [Videos](#videos).
 
 ## Videos
 
@@ -81,9 +81,11 @@ frames video -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.mov
 frames video -d "iPhone Duo Laptop Pose" --alpha inner-portrait.mov
 ```
 
-Frames projects every video frame onto the folded display with the geometry, display mask, reflection, and camera of the screenshot poses, and the output keeps the hardware's transparency with `--alpha` or `--codec hevc-alpha`. Merging, `--rotate`, and every output codec work as they do for other frames. A framed video frame differs from the same image framed as a screenshot only in resampling: ffmpeg's cubic filter is slightly softer than Pillow's.
+Frames projects every video frame onto the folded display the way it projects a screenshot, with the same geometry, filtering, display mask, and reflection, and the output keeps the hardware's transparency with `--alpha` or `--codec hevc-alpha`. The camera follows the content under it frame by frame, so it changes as a recording moves between dark and light screens. Where the fold compresses the recording, fine detail keeps a steady tone instead of shimmering. Merging, `--rotate`, and every output codec work as they do for other frames.
 
-Any recording with the inner display's shape fits, at any scale, so the simulator's 2852 × 2006 recordings work unchanged. For these two poses Frames reads the recording's rotation metadata: a simulator recording made in landscape goes to Book Pose, and one made in portrait goes to Laptop Pose. A recording with another shape is rejected instead of being stretched. The camera is drawn the same way for the whole clip.
+A framed video frame matches the same image framed as a screenshot; the two differ only by resampling differences too small to see. Like a screenshot, each frame is projected at twice the output size and filtered down, so these exports take several times longer than flat frames.
+
+Any recording with the inner display's shape fits, at any scale, so the simulator's 2852 × 2006 recordings work unchanged. For these two poses Frames reads the recording's rotation metadata: a simulator recording made in landscape goes to Book Pose, and one made in portrait goes to Laptop Pose. A recording with another shape is rejected instead of being stretched.
 
 ## Merging with other devices
 

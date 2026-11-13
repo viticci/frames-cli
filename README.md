@@ -135,7 +135,7 @@ frames -c "Star White" duo.png
 frames -d "iPhone Duo Outer Open" outer-portrait.png
 ```
 
-Frames **1.7.2 or later** with asset pack 4.2.2 also frames inner-display screenshots on a partially open iPhone Duo. Book Pose takes landscape screenshots and Laptop Pose takes portrait screenshots. Neither is selected automatically, so pick one by name. Both are for still images, not videos:
+Frames **1.7.2 or later** with asset pack 4.2.2 also frames inner-display screenshots on a partially open iPhone Duo. Book Pose takes landscape screenshots and Laptop Pose takes portrait screenshots. Neither is selected automatically, so pick one by name. Both also frame inner-display screen recordings with `frames video -d "iPhone Duo Book Pose" recording.mov`:
 
 ```bash
 frames -d "iPhone Duo Book Pose" inner-landscape.png

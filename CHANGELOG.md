@@ -2,7 +2,7 @@
 
 ## 1.7.2 — __RELEASE_DATE__
 
-Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.2 adds two partially open iPhone Duo poses for screenshots, and moves to asset pack 4.2.2. Run `frames setup` after updating to download it.
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.2 adds two partially open iPhone Duo poses for screenshots and screen recordings, and moves to asset pack 4.2.2. Run `frames setup` after updating to download it.
 
 ### iPhone Duo Book Pose and Laptop Pose
 
@@ -18,7 +18,7 @@ Thanks to [Frank Rupprecht](https://github.com/frankschlegel) ([#14](https://git
 
 - Frames bends the screenshot across the fold with the perspective from Apple's Photoshop templates, then adds the reflection and the camera from the same templates.
 - Framed images are __BOOK_CANVAS__ pixels for Book Pose and __LAPTOP_CANVAS__ pixels for Laptop Pose. Screenshots are never upscaled.
-- The poses are for still images. `frames video` stops with a message that they are available for screenshots only.
+- The poses frame screen recordings too: `frames video -d "iPhone Duo Book Pose" recording.mov`. Every frame is projected like a screenshot, and the camera follows the content under it. Any recording with the inner display's shape works, including the simulator's 2852 × 2006 files; other shapes are rejected. These exports take several times longer than flat frames.
 - The poses use your saved default color for iPhone Duo Inner until you pick one for them. `frames colors` lists them once your pack has them, and `frames list-colors "Book Pose"` finds their finishes by short name.
 - With an older pack, asking for a pose tells you the pack predates it and to run `frames setup`. `frames doctor` notes the same.
 
