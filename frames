@@ -35,7 +35,7 @@ except ImportError:
 
 warnings.simplefilter("error", Image.DecompressionBombWarning)
 
-VERSION = "1.7.2"
+VERSION = "1.7.3"
 APP_NAME = "frames"
 HOME = Path.home()
 CONFIG_DIR = HOME / ".config" / "frames"
@@ -2258,7 +2258,7 @@ def _warp_video_layers(frame_meta, work_dir):
             layers["camera"] = {
                 "box": (left, top, right - left, bottom - top),
                 "offset": (left - camera["x"], top - camera["y"]),
-                "layer_width": layer_width, "ranges": [tuple(levels) for levels in camera["blendIf"]],
+                "layer_width": layer_width, "ranges": [_blend_if_levels(levels) for levels in camera["blendIf"]],
                 "color_path": str(color_path), "alpha_path": str(alpha_path),
             }
     return layers
@@ -2289,6 +2289,17 @@ def _warp_video_assets(frame_metas):
         finally:
             for meta in warped:
                 meta.pop("warp_layers", None)
+
+
+def _blend_if_levels(levels):
+    """The four levels of a Blend If range, as numbers. They are written into an
+    ffmpeg expression, so text from a catalog must never pass through."""
+    values = tuple(levels)
+    if len(values) != 4 or not all(
+        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) for value in values
+    ):
+        raise TypeError("blendIf needs four numbers per camera layer")
+    return values
 
 
 def _camera_visibility(levels):

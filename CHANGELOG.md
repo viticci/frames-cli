@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.7.3 — __RELEASE_DATE__
+## 1.7.3 — 2026-11-13
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.3 frames screen recordings in the two partially open iPhone Duo poses. It uses asset pack 4.2.2, so there is nothing new to download.
 
@@ -16,8 +16,8 @@ Frames adds Apple device bezels to screenshots and screen recordings from the co
 - Every frame is projected the way a screenshot is, with the same perspective, filtering, display mask, and reflection, so a video frame matches the same image framed as a screenshot.
 - The camera follows the content under it frame by frame, as it does for screenshots. It changes as a recording moves between dark and light screens.
 - Where the fold compresses the recording, fine detail keeps a steady tone instead of shimmering as it scrolls.
-- Any recording with the inner display's shape works, at any scale, including the simulator's 2852 × 2006 and 2006 × 2852 recordings. For these two poses Frames reads a recording's rotation metadata. A recording with another shape stops with an error that names the accepted sizes.
-- `--alpha`, `--codec hevc-alpha`, `--background`, `--rotate`, and `--merge` work as they do for other frames. Videos are 2564 × 2026 for Book Pose and 2064 × 1560 for Laptop Pose.
+- Any recording with the inner display's shape works, at any scale, including 2852 × 2006 and 2006 × 2852 recordings from the simulator. For these two poses Frames reads a recording's rotation metadata. A recording with another shape stops with an error that names the accepted sizes.
+- `--alpha`, `--codec hevc-alpha`, `--background`, and `--rotate` work as they do for other frames. `--merge` frames every recording in the same pose, because `--device` applies to all inputs. Videos are 2564 × 2026 for Book Pose and 2064 × 1560 for Laptop Pose.
 - These exports take several times longer than flat frames, because each frame is projected at twice the output size and filtered down, as a screenshot is.
 - Videos in every other frame are unchanged.
 

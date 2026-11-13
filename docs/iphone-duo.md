@@ -58,7 +58,7 @@ frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
 
 Book Pose accepts 2853 × 2007 screenshots and Laptop Pose accepts 2007 × 2853 screenshots, plus mockups at Apple's announced 2670 × 1878 and 1878 × 2670. Both come in Night Sky (the default) and Star White, and follow your saved default color for iPhone Duo Inner until you pick one for them in `frames colors`.
 
-The poses need Frames 1.7.2 or later and asset pack 4.2.2. Run `frames setup` to download the pack. With an older pack, asking for a pose tells you to run `frames setup`, and `frames doctor` notes that the pack predates the poses. `frames list` shows them under Manual frames once they are installed. Framing uses Pillow only.
+The poses need Frames 1.7.2 or later and asset pack 4.2.2. Run `frames setup` to download the pack. With an older pack, asking for a pose tells you to run `frames setup`, and `frames doctor` notes that the pack predates the poses. `frames list` shows them under Manual frames once they are installed. Framing a screenshot uses Pillow only.
 
 Frames 1.7.3 or later also frames screen recordings in both poses; see [Videos](#videos). Frames 1.7.2 frames screenshots only.
 
@@ -81,11 +81,11 @@ frames video -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.mov
 frames video -d "iPhone Duo Laptop Pose" --alpha inner-portrait.mov
 ```
 
-Frames projects every video frame onto the folded display the way it projects a screenshot, with the same geometry, filtering, display mask, and reflection, and the output keeps the hardware's transparency with `--alpha` or `--codec hevc-alpha`. The camera follows the content under it frame by frame, so it changes as a recording moves between dark and light screens. Where the fold compresses the recording, fine detail keeps a steady tone instead of shimmering. Merging, `--rotate`, and every output codec work as they do for other frames.
+Frames projects every video frame onto the folded display the way it projects a screenshot, with the same geometry, filtering, display mask, and reflection, and the output keeps the hardware's transparency with `--alpha` or `--codec hevc-alpha`. The camera follows the content under it frame by frame, so it changes as a recording moves between dark and light screens. Where the fold compresses the recording, fine detail keeps a steady tone instead of shimmering. `--rotate` and every output codec work as they do for other frames. `--device` applies to every input, so a merge frames each recording in the same pose.
 
 A framed video frame matches the same image framed as a screenshot; the two differ only by resampling differences too small to see. Like a screenshot, each frame is projected at twice the output size and filtered down, so these exports take several times longer than flat frames.
 
-Any recording with the inner display's shape fits, at any scale, so the simulator's 2852 × 2006 recordings work unchanged. For these two poses Frames reads the recording's rotation metadata: a simulator recording made in landscape goes to Book Pose, and one made in portrait goes to Laptop Pose. A recording with another shape is rejected instead of being stretched.
+Any recording with the inner display's shape fits, at any scale, so recordings at the even sizes recorders produce, 2852 × 2006 and 2006 × 2852, work unchanged. For these two poses Frames reads the recording's rotation metadata, so a recording stored sideways with a rotation flag is framed the way it plays: one that plays in landscape goes to Book Pose, and one that plays in portrait goes to Laptop Pose. A recording with another shape is rejected instead of being stretched.
 
 ## Merging with other devices
 

@@ -165,6 +165,17 @@ class WarpedVideoMetadataTests(unittest.TestCase):
             with frames._warp_video_assets([meta]):
                 pass
         warp["reflections"] = reflections
+        # Blend If levels go into an ffmpeg expression: only numbers may reach it.
+        ranges = warp["camera"]["blendIf"]
+        for levels in (["0", "0", "10", "30"], ["0))',drawbox=color=red:t=fill,geq=r='((1", "", "~", "255"],
+                       [0, 0, 10], [0, 0, 10, float("inf")], [0, 0, 10, True]):
+            warp["camera"]["blendIf"] = [levels] + ranges[1:]
+            with self.assertRaisesRegex(ValueError, "incomplete warp entry.*blendIf needs four numbers"):
+                with frames._warp_video_assets([meta]):
+                    pass
+        warp["camera"]["blendIf"] = ranges
+        with frames._warp_video_assets([meta]):
+            self.assertEqual(len(meta["warp_layers"]["camera"]["ranges"]), len(ranges))
         sizes, warp["inputSizes"] = warp["inputSizes"], [[0, 400]]
         with self.assertRaisesRegex(ValueError, "incomplete warp entry"):
             self.resolve(catalog, *source_size, name=LAPTOP)
