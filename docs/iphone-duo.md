@@ -60,7 +60,7 @@ Book Pose accepts 2853 × 2007 screenshots and Laptop Pose accepts 2007 × 2853 
 
 The poses need Frames 1.7.2 or later and asset pack 4.2.2. Run `frames setup` to download the pack. With an older pack, asking for a pose tells you to run `frames setup`, and `frames doctor` notes that the pack predates the poses. `frames list` shows them under Manual frames once they are installed. Framing uses Pillow only.
 
-Both poses frame screen recordings as well as screenshots; see [Videos](#videos).
+Frames 1.7.3 or later also frames screen recordings in both poses; see [Videos](#videos). Frames 1.7.2 frames screenshots only.
 
 ## Videos
 
@@ -74,7 +74,7 @@ frames video --alpha -c "Star White" outer-recording.mp4
 
 Simulator recordings of the inner display (`xcrun simctl io booted recordVideo --display=3`) are 2006 × 2852, because video encoders need even dimensions, and they carry rotation metadata. Frames doesn't detect them automatically yet, so select the frame that matches the recording's orientation, for example `frames video -d "iPhone Duo Inner Landscape" inner-recording.mov`.
 
-The partially open poses frame recordings as well. Select the pose by name:
+Frames 1.7.3 or later frames recordings in the partially open poses as well, with the same pack. Select the pose by name:
 
 ```bash
 frames video -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.mov

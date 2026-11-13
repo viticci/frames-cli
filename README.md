@@ -135,7 +135,7 @@ frames -c "Star White" duo.png
 frames -d "iPhone Duo Outer Open" outer-portrait.png
 ```
 
-Frames **1.7.2 or later** with asset pack 4.2.2 also frames inner-display screenshots on a partially open iPhone Duo. Book Pose takes landscape screenshots and Laptop Pose takes portrait screenshots. Neither is selected automatically, so pick one by name. Both also frame inner-display screen recordings with `frames video -d "iPhone Duo Book Pose" recording.mov`:
+Frames **1.7.2 or later** with asset pack 4.2.2 also frames inner-display screenshots on a partially open iPhone Duo. Book Pose takes landscape screenshots and Laptop Pose takes portrait screenshots. Neither is selected automatically, so pick one by name:
 
 ```bash
 frames -d "iPhone Duo Book Pose" inner-landscape.png
@@ -143,6 +143,13 @@ frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
 ```
 
 Run `frames setup` once after updating to download the pack. Until then, `frames doctor` notes that your pack predates the poses. The poses use your saved default color for iPhone Duo Inner until you pick one for them in `frames colors`.
+
+Frames **1.7.3 or later** also frames inner-display screen recordings in both poses, with the same pack:
+
+```bash
+frames video -d "iPhone Duo Book Pose" inner-landscape.mov
+frames video -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.mov
+```
 
 See the [iPhone Duo guide](docs/iphone-duo.md) for capturing screenshots in the simulator, the partially open poses, videos, merging, and known limitations.
 
@@ -261,6 +268,7 @@ frames video --preset compact recording.mp4
 frames video --preset balanced recording.mp4
 frames video --preset best recording.mp4
 frames video --rotate counterclockwise ipad-landscape-recording.mp4
+frames video -d "iPhone Duo Book Pose" inner-landscape.mov
 frames video -m --alpha 1.mp4 2.mp4
 frames video -m --background transparent 1.mp4 2.mp4
 ```
@@ -643,7 +651,7 @@ frames -f ~/screenshots/*.png
 
 | Category | Devices | Notes |
 |----------|---------|-------|
-| iPhone Duo | Inner and outer displays | Portrait + landscape; 2 colors (Night Sky default); optional rear view; Book Pose and Laptop Pose for inner screenshots |
+| iPhone Duo | Inner and outer displays | Portrait + landscape; 2 colors (Night Sky default); optional rear view; Book Pose and Laptop Pose for inner screenshots and recordings |
 | iPhone 18 | 18 Pro, 18 Pro Max | Portrait + landscape; 4 colors (Burgundy default); default for 17 Pro sizes |
 | iPhone 17 | 17, 17 Pro, 17 Pro Max | Portrait + landscape |
 | iPhone Air | Air | Portrait + landscape |

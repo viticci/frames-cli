@@ -1699,7 +1699,7 @@ def resolve_frame_metadata(
     # Only warped frames depend on the size ffmpeg delivers after it applies rotation metadata.
     try:
         warp_size = _warp_video_size(model_name, warp, *(display_size or (width, height))) if warp else None
-    except (KeyError, TypeError) as error:
+    except (KeyError, TypeError, AttributeError, ArithmeticError) as error:
         raise ValueError(f"{model_name} has an incomplete warp entry in NewFrames.json: {error}") from error
     has_colors = entry.get("colors") == "yes"
     color = get_color(model_name, color_arg, user_defaults=user_defaults, strict=strict_color) if has_colors else None
@@ -2281,7 +2281,7 @@ def _warp_video_assets(frame_metas):
                 work_dir.mkdir()
                 try:
                     meta["warp_layers"] = _warp_video_layers(meta, work_dir)
-                except (KeyError, TypeError) as error:
+                except (KeyError, TypeError, AttributeError, ArithmeticError) as error:
                     raise ValueError(
                         f"{meta['device']} has an incomplete warp entry in NewFrames.json: {error}"
                     ) from error

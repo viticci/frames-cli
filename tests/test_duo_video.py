@@ -160,6 +160,15 @@ class WarpedVideoMetadataTests(unittest.TestCase):
             with frames._warp_video_assets([meta]):
                 pass
         warp["regions"] = regions
+        reflections, warp["reflections"] = warp["reflections"], None
+        with self.assertRaisesRegex(ValueError, "incomplete warp entry"):
+            with frames._warp_video_assets([meta]):
+                pass
+        warp["reflections"] = reflections
+        sizes, warp["inputSizes"] = warp["inputSizes"], [[0, 400]]
+        with self.assertRaisesRegex(ValueError, "incomplete warp entry"):
+            self.resolve(catalog, *source_size, name=LAPTOP)
+        warp["inputSizes"] = sizes
         (self.root / f"{LAPTOP}_camera.png").unlink()
         with self.assertRaisesRegex(FileNotFoundError, "Camera layers missing"):
             self.resolve(catalog, *source_size, name=LAPTOP)
