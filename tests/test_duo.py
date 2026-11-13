@@ -26,6 +26,9 @@ def load_module(name, path):
 frames = load_module("frames_duo", ROOT / "frames")
 builder = load_module("build_duo", ROOT / "scripts/build_duo_assets.py")
 
+POSES = {"iPhone Duo Book Pose": "iPhone Duo Inner Partially Open Landscape",
+         "iPhone Duo Laptop Pose": "iPhone Duo Inner Partially Open Portrait"}
+
 
 class DuoTests(unittest.TestCase):
     def test_warped_regions_stay_clipped_to_the_display(self):
@@ -192,16 +195,49 @@ class DuoTests(unittest.TestCase):
                 notes = " ".join(json.loads(output.getvalue())["notes"])
                 self.assertEqual("predates iPhone Duo" in notes, not include_duo)
 
+    def pose_catalog(self, include_poses=True):
+        """The Duo catalog, with the partially open poses of pack 4.2.2 when asked."""
+        catalog = builder.catalog_entries()
+        if include_poses:
+            catalog["variants"].update({name: {"name": name, "x": "0", "y": "0", "colors": "yes", "warp": {}}
+                                        for name in POSES.values()})
+        return catalog
+
+    def test_flat_inner_screenshots_keep_flat_frames_when_poses_are_installed(self):
+        sizes = {(2853, 2007): "Landscape", (2670, 1878): "Landscape", (2007, 2853): "Portrait", (1878, 2670): "Portrait"}
+        with tempfile.TemporaryDirectory() as directory:
+            for (width, height), orientation in sizes.items():
+                flat = f"iPhone Duo Inner {orientation}"
+                pose = f"iPhone Duo Inner Partially Open {orientation}"
+                capture = Path(directory) / f"{width}.png"
+                Image.new("RGB", (width, height)).save(capture)
+                for include_poses in (True, False):
+                    with self.subTest(size=(width, height), include_poses=include_poses):
+                        catalog = self.pose_catalog(include_poses)
+                        entry, name, primary, is_variant = frames.resolve_device_entry(width, height, catalog)
+                        self.assertEqual((name, primary, is_variant), (flat, flat, False))
+                        self.assertNotIn("warp", entry)
+                        # info offers the pose as a choice, and reports no choice without it.
+                        info = frames._info_for_image(capture, catalog)
+                        self.assertEqual((info["device"], info["is_variant"]), (flat, False))
+                        self.assertEqual(info["variants"], [flat, pose] if include_poses else [])
+
+    def test_poses_follow_the_inner_display_default_color(self):
+        for pose in POSES.values():
+            self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Inner": "Star White"}), "Star White")
+            self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Inner": "Star White",
+                                                           "iPhone Duo Inner Partially Open": "Night Sky"}), "Night Sky")
+            self.assertEqual(frames.get_color(pose, "Night Sky", {"iPhone Duo Inner": "Star White"}), "Night Sky")
+            self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Outer": "Star White"}), "Night Sky")
+        self.assertEqual(frames.get_color("iPhone Duo Inner Portrait", None,
+                                          {"iPhone Duo Inner Partially Open": "Star White"}), "Night Sky")
+
     @mock.patch.object(frames.C, "enabled", False)
     def test_list_colors_and_doctor_present_the_poses_a_pack_provides(self):
-        poses = {"iPhone Duo Book Pose": "iPhone Duo Inner Partially Open Landscape",
-                 "iPhone Duo Laptop Pose": "iPhone Duo Inner Partially Open Portrait"}
         for include_poses in (True, False):
             with self.subTest(include_poses=include_poses), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
-                catalog = builder.catalog_entries()
-                if include_poses:
-                    catalog["variants"].update({name: {"name": name, "warp": {}} for name in poses.values()})
+                catalog = self.pose_catalog(include_poses)
                 (root / "NewFrames.json").write_text(json.dumps(catalog), encoding="utf-8")
                 (root / "version.txt").write_text("4.2.2" if include_poses else "4.2.1", encoding="utf-8")
                 output = io.StringIO()
@@ -209,10 +245,15 @@ class DuoTests(unittest.TestCase):
                     frames.cmd_list(Namespace(assets=str(root)))
                 manual = output.getvalue().split("Manual frames")[1].split("Default Variants")[0]
                 self.assertIn("iPhone Duo Outer Open", manual)
-                for alias, name in poses.items():
+                for alias, name in POSES.items():
                     self.assertEqual(f"{alias} ({name})" in manual, include_poses)
                 self.assertEqual("Pose" in output.getvalue(), include_poses)
                 self.assertNotIn("Partially Open", output.getvalue().split("Default Variants")[1])
+
+                # The color picker gives the poses a row only when the pack can render them.
+                devices = dict(frames._build_device_list(root))
+                self.assertEqual("iPhone Duo Inner Partially Open" in devices, include_poses)
+                self.assertEqual(devices["iPhone Duo Inner"], ["Night Sky", "Star White"])
 
                 output = io.StringIO()
                 with mock.patch.object(frames, "CONFIG_FILE", root / "missing.json"), \
@@ -222,12 +263,23 @@ class DuoTests(unittest.TestCase):
                 self.assertEqual("the iPhone Duo Book and Laptop poses. Run `frames setup`" in notes, not include_poses)
                 self.assertNotIn("predates iPhone Duo", notes)
 
-        # Colors come from the CLI's own table, so the short name works with any pack.
-        output = io.StringIO()
-        with contextlib.redirect_stdout(output):
-            frames.cmd_list_colors(Namespace(device_name="laptop pose"))
-        self.assertEqual(output.getvalue().split(), "iPhone Duo Inner Partially Open Portrait (iPhone Duo Laptop Pose) "
-                         "1. Night Sky (default) 2. Star White".split())
+                # Asking for a pose an older pack lacks says how to get it.
+                for name in (*POSES, *POSES.values()):
+                    if include_poses:
+                        self.assertEqual(frames.resolve_device_entry(1, 1, catalog, force_device=name)[1], POSES.get(name, name))
+                    else:
+                        with self.assertRaisesRegex(ValueError, "predates the iPhone Duo Book and Laptop poses. Run `frames setup`"):
+                            frames.resolve_device_entry(1, 1, catalog, force_device=name)
+                with self.assertRaisesRegex(ValueError, "'iPhone Duo Sideways' not found in dictionary"):
+                    frames.resolve_device_entry(1, 1, catalog, force_device="iPhone Duo Sideways")
+
+        # Colors come from the CLI's own table, so short names work with any pack.
+        for query in ("laptop pose", "iPhone Duo Laptop Pose"):
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                frames.cmd_list_colors(Namespace(device_name=query))
+            self.assertEqual(output.getvalue().split(), "iPhone Duo Inner Partially Open Portrait (iPhone Duo Laptop Pose) "
+                             "1. Night Sky (default) 2. Star White".split())
 
     def test_mask_uses_enclosed_opening_and_preserves_partial_bezel_alpha(self):
         image = Image.new("RGBA", (16, 12))

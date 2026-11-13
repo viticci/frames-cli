@@ -171,7 +171,7 @@ frames setup /path/to/Frames
 - `frames --json -m ...` returns a merged result with `merged`, `count`, and `frames`.
 - `frames --json -b N ...` returns `batches`, `batch_size`, `total`, and `frames` when there are multiple groups. A single group returns `merged`, `count`, and `frames`.
 - When proportional merge scaling is applied, per-frame `scale_factor` values are included in the JSON output. Image batch factors describe each frame within its own batch.
-- `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`.
+- `frames --json info ...` returns either one object or a list of objects, including `device`, `primary_match`, `colors`, `color_count`, `has_mask`, `resize_width`, `variants`, and `is_variant`. `variants` lists every frame the pack can render for that input, the selected one included; it is empty when there is no other choice.
 - `frames --json video-info ...` returns one video metadata object, or a list for multiple videos, including `dimensions`, `source_dimensions`, `rotation`, `duration`, `fps`, `codec`, `audio`, `device`, `primary_match`, `color`, `frame_size`, `output_dimensions`, `padded`, `resize_width`, and `mask_missing`.
 - `frames --json doctor` returns asset path/source/version, PNG count, config presence, issues, notes, and suggested next steps.
 - `frames --json video ...` returns one video object, or `{ "videos": [...] }` for multiple individual outputs, including `output_codec`, `rotation`, `source_dimensions`, `output_dimensions`, `padded`, `preset`, `output_size_bytes`, `output_size`, `source_size_bytes`, `source_size`, `savings_bytes`, `savings`, and `savings_percent`.
@@ -241,7 +241,7 @@ Two partially open poses frame inner-display screenshots on a folded phone. They
 | `iPhone Duo Book Pose` | 2853 × 2007 or 2670 × 1878 | iPhone Duo Inner Partially Open Landscape |
 | `iPhone Duo Laptop Pose` | 2007 × 2853 or 1878 × 2670 | iPhone Duo Inner Partially Open Portrait |
 
-Both have Night Sky (default) and Star White finishes. Any other input size fails with an error that names the accepted sizes. The poses are for still images: `frames video` rejects them as available for screenshots only. JSON output reports the full frame name as `device`. `frames list` shows the poses under manual frames when the pack has them; if `--device "iPhone Duo Book Pose"` is not found, the pack predates the poses, so run `frames setup`.
+Both have Night Sky (default) and Star White finishes, and use the saved default color of iPhone Duo Inner until they have their own. Any other input size fails with an error that names the accepted sizes. Framed images are __BOOK_CANVAS__ pixels (Book Pose) and __LAPTOP_CANVAS__ pixels (Laptop Pose); screenshots are never upscaled. The poses are for still images: `frames video` rejects them as available for screenshots only. JSON output reports the full frame name as `device`. `frames list` shows the poses under manual frames when the pack has them; with an older pack, `--device "iPhone Duo Book Pose"` fails with an error that says to run `frames setup`.
 
 ```bash
 frames -d "iPhone Duo Book Pose" inner-landscape.png

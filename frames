@@ -633,6 +633,10 @@ DEVICE_ALIASES = {
     "iPhone Duo Laptop Pose": "iPhone Duo Inner Partially Open Portrait",
 }
 
+# Devices that use another device's saved default color until they have one
+# of their own. Keys and values are names without orientation, as in config.
+COLOR_DEFAULT_PARENTS = {"iPhone Duo Inner Partially Open": "iPhone Duo Inner"}
+
 # Width keys the published NewFrames.json lacks even though the frame PNG ships.
 # The pack's own entry wins if a later release adds one.
 MISSING_DEVICE_ENTRIES = {
@@ -726,10 +730,12 @@ def resolve_variant(model_name, device_dict):
 
 
 def installed_variants(model_name, device_dict):
-    """List the variants of a primary match that the asset pack can render."""
+    """List the frames the asset pack can render for a primary match, the
+    selected one included. Empty when the pack offers no other choice."""
     installed = device_dict.get("variants", {})
-    return [name for name in FRAME_VARIANTS.get(model_name, [])
-            if name == model_name or name in installed]
+    names = [name for name in FRAME_VARIANTS.get(model_name, [])
+             if name == model_name or name in installed]
+    return names if len(names) > 1 else []
 
 
 def resolve_device_entry(width, height, device_dict, force_device=None, device_index=None, verbose=False):
@@ -737,6 +743,11 @@ def resolve_device_entry(width, height, device_dict, force_device=None, device_i
     if force_device:
         entry = (device_index or build_device_name_index(device_dict)).get(force_device)
         if not entry:
+            if force_device in DEVICE_ALIASES or force_device in DEVICE_ALIASES.values():
+                raise ValueError(
+                    f"Device '{force_device}' is not in this asset pack, which predates the iPhone Duo "
+                    "Book and Laptop poses. Run `frames setup` to download the current pack."
+                )
             raise ValueError(f"Device '{force_device}' not found in dictionary")
         return entry, entry["name"], entry["name"], False
 
@@ -776,6 +787,14 @@ def save_config(config):
     os.replace(tmp_path, CONFIG_FILE)
 
 
+def saved_default_color(base, colors, user_defaults):
+    """Saved default color for a device name without orientation, or None."""
+    for key in (base, COLOR_DEFAULT_PARENTS.get(base)):
+        if key in user_defaults and user_defaults[key] in colors:
+            return user_defaults[key]
+    return None
+
+
 def get_color(model_name, color_arg, user_defaults=None, strict=False):
     """Resolve frame color for a device. Checks: CLI arg > user config > first in list."""
     if model_name not in FRAME_COLORS:
@@ -805,15 +824,9 @@ def get_color(model_name, color_arg, user_defaults=None, strict=False):
         print(f"{C.yellow('Warning')}: Color '{color_arg}' not found for {model_name}. Using default.", file=sys.stderr)
 
     # Check user config for saved default
-    user_defaults = user_defaults or {}
     # Strip orientation for lookup (user sets "iPhone 17 Pro" not "iPhone 17 Pro Portrait")
     base = model_name.replace(" Portrait", "").replace(" Landscape", "")
-    if base in user_defaults:
-        saved = user_defaults[base]
-        if saved in colors:
-            return saved
-
-    return colors[0]  # Fallback = first color
+    return saved_default_color(base, colors, user_defaults or {}) or colors[0]  # Fallback = first color
 
 
 def parse_per_input_colors(colors_arg, count):
@@ -2568,6 +2581,7 @@ def cmd_list(args):
         "iPad": [], "MacBook": [], "iMac": [], "Studio Display": [], "Watch": [],
     }
 
+    primaries = set()
     for key in sorted(device_dict.keys(), key=lambda k: int(k) if k != "variants" else 0):
         if key == "variants":
             continue
@@ -2581,6 +2595,7 @@ def cmd_list(args):
 
         for sub in sub_entries:
             name = sub["name"]
+            primaries.add(name)
             has_colors = sub.get("colors") == "yes"
             resize = sub.get("resizeWidth") and str(sub["resizeWidth"]) != key
 
@@ -2604,11 +2619,12 @@ def cmd_list(args):
                 print(e)
             print()
 
-    # Frames only --device selects: variants no size picks, such as the iPhone
-    # Duo rear view, and frames with a short name, such as the Duo poses.
-    automatic = {name for names in FRAME_VARIANTS.values() for name in names}
+    # Frames only --device selects: installed variants no size resolves to with
+    # this pack, such as the iPhone Duo rear view, the Duo poses, and frames a
+    # newer default replaced.
+    automatic = {resolve_variant(name, device_dict)[1] for name in primaries}
     short_names = {name: alias for alias, name in DEVICE_ALIASES.items()}
-    manual = [name for name in device_dict.get("variants", {}) if name not in automatic or name in short_names]
+    manual = [name for name in device_dict.get("variants", {}) if name not in automatic]
     if manual:
         print(f"  {C.bold('Manual frames')} {C.dim('(select with --device)')}")
         for name in manual:
@@ -2646,33 +2662,38 @@ def cmd_list_colors(args):
             print(f"    {C.cyan(str(i+1))}. {color}{default}")
         print()
 
-def _build_device_list():
-    """Build deduplicated device→colors list (no portrait/landscape dupes)."""
+def _build_device_list(assets_dir):
+    """Build deduplicated device→colors list (no portrait/landscape dupes).
+
+    Frames with a short name, such as the Duo poses, are listed only when the
+    asset pack has them."""
     devices = []
     seen = set()
+    json_path = Path(assets_dir) / "NewFrames.json"
     for name, colors in FRAME_COLORS.items():
+        if name in DEVICE_ALIASES.values() and not _pack_has_frame(json_path, name):
+            continue
         base = name.replace(" Portrait", "").replace(" Landscape", "")
         if base not in seen:
             seen.add(base)
             devices.append((base, list(colors)))
     return devices
 
-def _print_colors_fallback():
+def _print_colors_fallback(devices):
     """Print device colors without curses."""
     O = lambda t: C.rgb(232, 114, 42, t)
-    devices = _build_device_list()
     cfg = load_config()
     user_defaults = cfg.get("default_colors", {})
     print(f"\n  {C.bold('All Device Colors')}\n")
     for base, colors in devices:
         print(f"  {C.bold(base)}")
         for i, color in enumerate(colors):
-            is_default = (base in user_defaults and user_defaults[base] == color) or (base not in user_defaults and i == 0)
+            is_default = color == (saved_default_color(base, colors, user_defaults) or colors[0])
             marker = O("●") if is_default else C.dim("○")
             print(f"    {marker} {color}")
         print()
 
-def _colors_curses(stdscr):
+def _colors_curses(stdscr, devices):
     """Curses-based interactive color picker."""
     import curses
 
@@ -2682,15 +2703,12 @@ def _colors_curses(stdscr):
     curses.init_pair(1, 209, -1)   # Orange
     curses.init_pair(2, 250, -1)   # Dim
 
-    devices = _build_device_list()
     cfg = load_config()
     user_defaults = cfg.get("default_colors", {})
     selected = {}
     for base, colors in devices:
-        if base in user_defaults and user_defaults[base] in colors:
-            selected[base] = colors.index(user_defaults[base])
-        else:
-            selected[base] = 0
+        saved = saved_default_color(base, colors, user_defaults)
+        selected[base] = colors.index(saved) if saved else 0
 
     # Flat list of navigable items
     items = []
@@ -2795,19 +2813,21 @@ def _colors_curses(stdscr):
 def cmd_colors(args):
     """Interactive color picker — arrow keys to navigate, space to select, enter to save."""
     O = lambda t: C.rgb(232, 114, 42, t)
+    assets_dir = Path(args.assets) if hasattr(args, 'assets') and args.assets else get_assets_dir()
+    devices = _build_device_list(assets_dir)
 
     if not sys.stdin.isatty():
-        _print_colors_fallback()
+        _print_colors_fallback(devices)
         return
 
     try:
         import curses
     except ImportError:
         print(f"{C.yellow('Warning')}: curses is unavailable. Showing non-interactive color list instead.", file=sys.stderr)
-        _print_colors_fallback()
+        _print_colors_fallback(devices)
         return
 
-    changed, selected, devices = curses.wrapper(_colors_curses)
+    changed, selected, devices = curses.wrapper(_colors_curses, devices)
 
     if changed:
         print(f"\n  {C.green('Defaults saved!')}\n")

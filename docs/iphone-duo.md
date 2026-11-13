@@ -56,9 +56,9 @@ frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
 
 `iPhone Duo Book Pose` and `iPhone Duo Laptop Pose` are aliases for `iPhone Duo Inner Partially Open Landscape` and `iPhone Duo Inner Partially Open Portrait`.
 
-Book Pose accepts 2853 × 2007 screenshots and Laptop Pose accepts 2007 × 2853 screenshots, plus mockups at Apple's announced 2670 × 1878 and 1878 × 2670. Both come in Night Sky (the default) and Star White.
+Book Pose accepts 2853 × 2007 screenshots and Laptop Pose accepts 2007 × 2853 screenshots, plus mockups at Apple's announced 2670 × 1878 and 1878 × 2670. Framed images are __BOOK_CANVAS__ pixels for Book Pose and __LAPTOP_CANVAS__ pixels for Laptop Pose; screenshots are never upscaled. Both come in Night Sky (the default) and Star White, and follow your saved default color for iPhone Duo Inner until you pick one for them in `frames colors`.
 
-The poses need Frames 1.7.2 or later and asset pack 4.2.2. Run `frames setup` to download the pack. `frames doctor` notes when your pack predates the poses, and `frames list` shows them under Manual frames once they are installed. Framing uses Pillow only.
+The poses need Frames 1.7.2 or later and asset pack 4.2.2. Run `frames setup` to download the pack. With an older pack, asking for a pose tells you to run `frames setup`, and `frames doctor` notes that the pack predates the poses. `frames list` shows them under Manual frames once they are installed. Framing uses Pillow only.
 
 Both poses are for still images. `frames video` stops with a message that they are available for screenshots only.
 

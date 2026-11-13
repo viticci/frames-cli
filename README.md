@@ -142,7 +142,7 @@ frames -d "iPhone Duo Book Pose" inner-landscape.png
 frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
 ```
 
-Run `frames setup` once after updating to download the pack. Until then, `frames doctor` notes that your pack predates the poses.
+Run `frames setup` once after updating to download the pack. Until then, `frames doctor` notes that your pack predates the poses. The poses use your saved default color for iPhone Duo Inner until you pick one for them in `frames colors`.
 
 See the [iPhone Duo guide](docs/iphone-duo.md) for capturing screenshots in the simulator, the partially open poses, videos, merging, and known limitations.
 
@@ -502,7 +502,7 @@ frames --json info screenshot.png
 
 ### `list`
 
-List all supported devices grouped by category. Shows pixel dimensions and available color counts. Frames that no screenshot size selects, such as the iPhone Duo rear view and the Book and Laptop poses, appear under Manual frames; select them with `--device`.
+List all supported devices grouped by category. Shows pixel dimensions and available color counts. Frames that no screenshot size selects with your pack appear under Manual frames; select them with `--device`. They include the iPhone Duo rear view, the Book and Laptop poses, and older frames a newer default replaced, such as iPhone 17 Pro.
 
 ```bash
 frames list

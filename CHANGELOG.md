@@ -17,8 +17,14 @@ Thanks to [Frank Rupprecht](https://github.com/frankschlegel) ([#14](https://git
   ```
 
 - Frames bends the screenshot across the fold with the perspective from Apple's Photoshop templates, then adds the reflection and the camera from the same templates.
+- Framed images are __BOOK_CANVAS__ pixels for Book Pose and __LAPTOP_CANVAS__ pixels for Laptop Pose. Screenshots are never upscaled.
 - The poses are for still images. `frames video` stops with a message that they are available for screenshots only.
-- `frames list` shows both poses under Manual frames when your pack has them, `frames list-colors "Book Pose"` finds their finishes by short name, and `frames doctor` notes when a pack predates them.
+- The poses use your saved default color for iPhone Duo Inner until you pick one for them. `frames colors` lists them once your pack has them, and `frames list-colors "Book Pose"` finds their finishes by short name.
+- With an older pack, asking for a pose tells you the pack predates it and to run `frames setup`. `frames doctor` notes the same.
+
+### Manual frames in `frames list`
+
+- `frames list` now shows every installed frame that only `--device` selects under Manual frames. That adds the two poses with their short names, and older frames a newer default replaced, such as iPhone 17 Pro, iPhone 16 Pro, MacBook Pro 2021, and Studio Display XDR. Before, their exact names appeared in no command.
 
 ### Asset pack 4.2.2
 

@@ -73,6 +73,11 @@ class IPhone18ProTests(unittest.TestCase):
                 with contextlib.redirect_stdout(output):
                     frames.cmd_list(Namespace(assets=str(root)))
                 self.assertIn("iPhone 17 Portrait → " + default, output.getvalue())
+                # A frame is manual only while a newer default takes its sizes.
+                manual = output.getvalue().split("Default Variants")[0].partition("Manual frames")[2]
+                self.assertEqual("iPhone 17 Pro Portrait" in manual, include_18)
+                self.assertEqual("iPhone 17 Pro Max Landscape" in manual, include_18)
+                self.assertNotIn("iPhone 18 Pro", manual)
 
                 output = io.StringIO()
                 with mock.patch.object(frames, "CONFIG_FILE", root / "missing.json"), \
