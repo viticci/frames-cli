@@ -97,7 +97,7 @@ python3 scripts/build_duo_assets.py \
 
 This builder copies the base PNGs unchanged and adds ten bezels, five screen masks, and six size entries to `NewFrames.json`. It checks each opening against the expected geometry, keeps the camera in the bezel, preserves the outer display's asymmetric corners, and verifies that lossless optimization leaves every decoded pixel unchanged. The ZIP has a fixed file order and timestamps. Apple's Design Resources License, included in the pack, governs the artwork; the repository's MIT license does not replace it.
 
-The partially open poses come from the Photoshop templates in the same download. `scripts/build_duo_folded_assets.py` adds them to a pack that already has iPhone Duo. It needs Python, Pillow, and ImageMagick (`magick` on your PATH) to read the templates' layers; ImageMagick is a build-time dependency only. It writes each pose's frames, screen masks, and camera overlay, plus one catalog entry per pose with the perspective and reflection data:
+The partially open poses come from the Photoshop templates in the same download. `scripts/build_duo_folded_assets.py` adds them to a pack that already has iPhone Duo. It needs only Python and Pillow, and reads the templates' layers directly. It writes each pose's two frames, screen mask, and camera layers, plus one catalog entry per pose with the perspective, camera, and reflection data. The build fails if a pose would enlarge a native screenshot anywhere on the display:
 
 ```bash
 python3 scripts/build_duo_folded_assets.py \

@@ -28,7 +28,7 @@ Thanks to [Frank Rupprecht](https://github.com/frankschlegel) ([#14](https://git
 
 ### Asset pack 4.2.2
 
-`frames setup` now downloads [AppleFrames422.zip](__PACK_URL__), pack version 4.2.2. It adds the pose frames, screen masks, and camera overlays to pack 4.2.1, for __PACK_PNG_COUNT__ PNGs in total. Every file from 4.2.1 is byte-identical, and the catalog only gains the two pose entries.
+`frames setup` now downloads [AppleFrames422.zip](__PACK_URL__), pack version 4.2.2. It adds the pose frames, screen masks, and camera layers to pack 4.2.1, for __PACK_PNG_COUNT__ PNGs in total. Every file from 4.2.1 is byte-identical, and the catalog only gains the two pose entries.
 
 - The Apple Frames shortcut reads the same pack. It does not use the new entries, so its output does not change.
 - `scripts/build_duo_folded_assets.py` builds the pose files from Apple's Photoshop templates. `scripts/release_pack.py` checks a new pack against the one it replaces and writes the ZIP.

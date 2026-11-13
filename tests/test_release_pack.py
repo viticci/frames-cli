@@ -39,7 +39,7 @@ class ReleasePackTests(unittest.TestCase):
         catalog["variants"][POSE] = {"name": POSE, "x": "0", "y": "0", "warp": {"regions": [[0.5, 1e-05]]}}
         # Builders copy the base pack, so a built pack still carries the old version.
         self.built = self.make_pack("built", catalog, "4.2.1")
-        for suffix in (" Night Sky.png", "_mask.png", "_overlay.png"):
+        for suffix in (" Night Sky.png", "_mask.png", "_camera.png"):
             Image.new("RGBA", (4, 4), "black").save(self.built / (POSE + suffix))
 
     def make_pack(self, name, catalog, version):
