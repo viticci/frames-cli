@@ -47,7 +47,7 @@ Screenshots follow the interface orientation, so rotate the simulator for landsc
 
 ## Partially open poses
 
-The partially open poses are manual frames for inner-display screenshots. They use the perspective geometry, display mask, and camera from Apple's Photoshop templates, and reflections sampled from their previews. Each pose is sized so a screenshot is never enlarged: Book Pose images are 2591 × 2082 and Laptop Pose images are 2114 × 1601. Select Book Pose for landscape screenshots or Laptop Pose for portrait screenshots:
+The partially open poses are manual frames for inner-display screenshots. They use the perspective geometry, display mask, and camera from Apple's Photoshop templates, and reflections sampled from their previews. Each pose is sized so a screenshot is never enlarged, and cropped to the device like every other frame: Book Pose images are 2564 × 2026 and Laptop Pose images are 2064 × 1560. Select Book Pose for landscape screenshots or Laptop Pose for portrait screenshots:
 
 ```bash
 frames -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.png

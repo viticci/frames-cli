@@ -4,7 +4,8 @@
 Requires Pillow. Apple's Photoshop templates are read directly, so the display
 mask, the camera layers, and their Blend If ranges come from the files rather
 than from a rendered preview. Each pose is scaled down until a native
-screenshot is never magnified anywhere on the display.
+screenshot is never magnified anywhere on the display, then cropped to the
+visible device like every other frame in the pack.
 """
 
 import argparse
@@ -20,6 +21,7 @@ import tempfile
 from PIL import Image
 
 from build_duo_assets import COLORS, sha256, write_archive
+from trim_pack import max_outside, visible
 
 
 # Orientation, then the native capture size followed by the announced size.
@@ -202,30 +204,49 @@ def region_scales(region, size, steps=32):
             max(sample[2] for sample in samples), max(sample[3] for sample in samples))
 
 
-def scaled_regions(quads, canvas, size):
-    """Place Apple's quads on a canvas scaled to size and solve each inverse transform."""
+def place_regions(quads, canvas, size, box):
+    """Solve each quad's inverse transform on Apple's canvas scaled to size and cropped to box."""
+    left, top, right, bottom = box
     regions = []
     for polygon, source in quads:
-        polygon = [(x * size[0] / canvas[0], y * size[1] / canvas[1]) for x, y in polygon]
-        regions.append({"polygon": polygon, "inverse": inverse_perspective(polygon, source, size)})
+        polygon = [(x * size[0] / canvas[0] - left, y * size[1] / canvas[1] - top) for x, y in polygon]
+        regions.append({"polygon": polygon,
+                        "inverse": inverse_perspective(polygon, source, (right - left, bottom - top))})
     return regions
 
 
-def fit_regions(quads, canvas, native):
-    """Shrink Apple's canvas until a native screenshot is never magnified.
+def fitted_size(quads, canvas, native):
+    """Shrink Apple's canvas until a native screenshot is never magnified."""
+    peak = max(region_scales(region, native)[0]
+               for region in place_regions(quads, canvas, canvas, (0, 0, *canvas)))
+    return tuple(math.floor(side / peak) for side in canvas)
 
-    Returns the new canvas size and its regions. Each region records its
-    extent: the most canvas pixels the screenshot's full width and height
-    span there, which is all the detail the region can show.
+
+def fit_regions(quads, canvas, size, box, native):
+    """Place the regions on the scaled, cropped canvas and check nothing is magnified.
+
+    Each region records its extent: the most canvas pixels the screenshot's
+    full width and height span there, which is all the detail the region can show.
     """
-    peak = max(region_scales(region, native)[0] for region in scaled_regions(quads, canvas, canvas))
-    size = tuple(math.floor(side / peak) for side in canvas)
-    regions = scaled_regions(quads, canvas, size)
+    regions = place_regions(quads, canvas, size, box)
     for region in regions:
         scales = region_scales(region, native)
         region["extent"] = [round(scales[2] * native[0], 2), round(scales[3] * native[1], 2)]
     check_not_magnified(regions, native)
-    return size, regions
+    return regions
+
+
+def device_box(frames):
+    """Return the crop that leaves only the visible device, and the strongest alpha it drops.
+
+    All finishes of a pose share one crop because they share one geometry. The
+    rule is the pack trimmer's, so these frames match the rest of the pack.
+    """
+    alphas = [frame.getchannel("A") for frame in frames]
+    boxes = [visible(alpha).getbbox() for alpha in alphas]
+    box = (min(b[0] for b in boxes), min(b[1] for b in boxes),
+           max(b[2] for b in boxes), max(b[3] for b in boxes))
+    return box, max(max_outside(alpha, box) for alpha in alphas)
 
 
 def check_not_magnified(regions, native):
@@ -280,33 +301,47 @@ def build_view(source, stage, orientation, input_sizes):
     vertical = orientation == "Portrait"
     native = tuple(input_sizes[0])
     shared = None
-    reflections = {}
+    frames, reflections = {}, {}
     for color in COLORS:
         psd = source / f"iPhone Duo - {color} - Inner Partially Open {orientation}.psd"
         canvas, layers, preview = read_psd(psd)
         content = layers["screen content"]
-        size, regions = fit_regions(warp_quads(content["descriptor"]), canvas, native)
+        quads = warp_quads(content["descriptor"])
+        size = fitted_size(quads, canvas, native)
         reflections[color] = reflection_profile(preview.convert("L"), vertical)
         frame = Image.new("RGBA", canvas)
         frame.alpha_composite(layers["hardware"]["image"], layers["hardware"]["offset"])
-        frame.resize(size, Image.LANCZOS).save(stage / f"{name} {color}.png")
+        frames[color] = frame.resize(size, Image.LANCZOS)
         # The layer mask is the display opening. Averaging keeps its interior solid.
         mask = content["mask"].resize(size, Image.BOX)
         strip, camera = camera_strip(layers, canvas, size)
-        signature = (size, regions, camera, sha256(mask.tobytes()), sha256(strip.tobytes()))
+        signature = (canvas, quads, camera, sha256(mask.tobytes()), sha256(strip.tobytes()))
         if shared is None:
             shared = signature
-            mask.save(stage / f"{name}_mask.png")
-            strip.save(stage / f"{name}_camera.png")
         elif signature != shared:
             raise ValueError(f"{orientation} finishes disagree on the geometry, display mask, or camera")
-    print("{}: {}x{} -> {}x{} ({:.4f})".format(name, *canvas, *size, size[0] / canvas[0]))
+    # Everything but the hardware is the same for both finishes. Crop it all to
+    # the device and move what is placed by canvas position along with it.
+    box, dropped = device_box(frames.values())
+    left, top = box[:2]
+    for color, frame in frames.items():
+        frame.crop(box).save(stage / f"{name} {color}.png")
+    mask.crop(box).save(stage / f"{name}_mask.png")
+    strip.save(stage / f"{name}_camera.png")
+    regions = fit_regions(quads, canvas, size, box, native)
+    # The reflections were sampled across Apple's whole canvas. The span is the
+    # part of each profile, in entries, that the cropped frame covers.
+    axis = 1 if vertical else 0
+    entries = len(reflections[COLORS[0]]) / size[axis]
+    print("{}: {}x{} -> {}x{} ({:.4f}), cropped to {} = {}x{} (strongest alpha dropped: {})".format(
+        name, *canvas, *size, size[0] / canvas[0], box, box[2] - left, box[3] - top, dropped))
     for index, region in enumerate(regions):
         print("  region {}: scale {:.4f} to {:.4f}".format(index, *region_scales(region, native)[1::-1]))
     entry = {
         "name": name, "x": "0", "y": "0", "mask": "yes", "colors": "yes",
         "warp": {"inputSizes": input_sizes, "regions": regions, "reflections": reflections,
-                 "camera": camera},
+                 "reflectionSpan": [box[axis] * entries, box[axis + 2] * entries],
+                 "camera": dict(camera, x=camera["x"] - left, y=camera["y"] - top)},
     }
     if vertical:
         # The laptop template's screen layer blends normally; the book's screens.

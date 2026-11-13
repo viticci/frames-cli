@@ -99,6 +99,14 @@ class DuoTests(unittest.TestCase):
         # Screen: 255 - (255 - 80) * (255 - 100) / 255. Normal blending would give 100.
         self.assertEqual(result.getpixel((3, 6)), (149, 149, 149, 255))
         self.assertEqual(result.getpixel((20, 6)), (161, 161, 161, 255))
+        # A frame cropped to the right half of the canvas covers only the profile's second entry.
+        warp["reflectionSpan"] = [1, 2]
+        result = frames.composite_warped(
+            Image.new("RGBA", size, (100, 100, 100, 255)), Image.new("RGBA", size, (80, 80, 80, 255)),
+            Image.new("RGBA", size, "white"), None, warp, "Star White",
+        )
+        self.assertEqual(result.getpixel((0, 6)), (155, 155, 155, 255))
+        self.assertEqual(result.getpixel((20, 6)), (161, 161, 161, 255))
 
     def test_laptop_pose_uses_normal_blending_and_vertical_reflection(self):
         size = (12, 24)
@@ -410,13 +418,26 @@ def psd_layer(name, box, color, blend_if=(0, 0, 255, 255), mask=None, descriptor
     label += bytes(-len(label) % 4)
     blocks = b"8BIMluni" + struct.pack(">I", 3) + b"abc\0"  # an odd-length block the reader skips
     if descriptor:
-        blocks += b"8BIMSoLd" + struct.pack(">I", len(descriptor)) + descriptor
+        blocks += b"8BIMSoLd" + struct.pack(">I", len(descriptor)) + descriptor + bytes(len(descriptor) % 2)
     extra = (struct.pack(">I", len(block)) + block + struct.pack(">I", len(ranges)) + ranges
              + label + blocks)
     record = (struct.pack(">4iH", top, left, bottom, right, len(data))
               + b"".join(struct.pack(">hI", channel, len(value)) for channel, value in data.items())
               + b"8BIMnorm" + bytes((255, 0, 8, 0)) + struct.pack(">I", len(extra)) + extra)
     return record, b"".join(data.values())
+
+
+def warp_descriptor(placement, before, after, quads):
+    """The parts of a Smart Object descriptor the builder reads: placement and Perspective Warp."""
+    def points(key, values):
+        return key + b"VlLs" + struct.pack(">I", len(values)) + b"".join(
+            b"HrznUntF#Pxl" + struct.pack(">d", x) + bytes(4) + b"VrtcUntF#Pxl" + struct.pack(">d", y)
+            for x, y in values)
+    return (b"nonAffineTransformVlLs" + struct.pack(">I", 8)
+            + b"".join(b"doub" + struct.pack(">d", value) for value in placement)
+            + points(b"vertices", before) + points(b"warpedVertices", after)
+            + b"".join(b"indicesVlLs" + struct.pack(">I", 4)
+                       + b"".join(b"long" + struct.pack(">I", index) for index in quad) for quad in quads))
 
 
 def write_psd(path, size, layers, preview):
@@ -452,7 +473,7 @@ class FoldedBuilderTests(unittest.TestCase):
 
     def test_region_scales_measure_canvas_pixels_per_screenshot_pixel(self):
         box = [(0, 0), (200, 0), (200, 25), (0, 25)]
-        region = folded.scaled_regions([(box, self.UNIT)], (200, 25), (200, 25))[0]
+        region = folded.place_regions([(box, self.UNIT)], (200, 25), (200, 25), (0, 0, 200, 25))[0]
         # A 100x50 screenshot on 200x25 pixels: doubled across, halved down.
         peak, low, across, down = folded.region_scales(region, (100, 50))
         self.assertEqual([round(value, 6) for value in (peak, low, across, down)], [2, 0.5, 2, 0.5])
@@ -462,15 +483,104 @@ class FoldedBuilderTests(unittest.TestCase):
         quads = [([(100, 0), (300, 0), (400, 200), (0, 200)], self.UNIT)]
         canvas, native = (400, 200), (100, 100)
         with self.assertRaisesRegex(ValueError, "would be magnified"):
-            folded.check_not_magnified(folded.scaled_regions(quads, canvas, canvas), native)
-        size, regions = folded.fit_regions(quads, canvas, native)
-        peak, low, across, down = folded.region_scales(regions[0], native)
+            folded.fit_regions(quads, canvas, canvas, (0, 0, *canvas), native)
+        size = folded.fitted_size(quads, canvas, native)
+        self.assertLess(size[0], 400)
+        region = folded.fit_regions(quads, canvas, size, (0, 0, *size), native)[0]
+        peak, low, across, down = folded.region_scales(region, native)
         self.assertLessEqual(peak, 1)
         self.assertGreater(peak, 0.95)  # as large as a whole-pixel canvas allows
         self.assertLess(low, peak / 2)
-        self.assertLess(size[0], 400)
-        self.assertEqual(regions[0]["polygon"][2], (size[0], size[1]))
-        self.assertEqual(regions[0]["extent"], [round(across * 100, 2), round(down * 100, 2)])
+        self.assertEqual(region["polygon"][2], (size[0], size[1]))
+        self.assertEqual(region["extent"], [round(across * 100, 2), round(down * 100, 2)])
+
+        # Cropping moves the polygon and leaves every scale as it was.
+        cropped = folded.fit_regions(quads, canvas, size, (3, 2, size[0], size[1]), native)[0]
+        self.assertEqual(cropped["polygon"][2], (size[0] - 3, size[1] - 2))
+        self.assertEqual(cropped["extent"], region["extent"])
+        for before, after in zip(folded.region_scales(region, native), folded.region_scales(cropped, native)):
+            self.assertAlmostEqual(before, after)
+        # The solved transform still returns the moved corners to the screenshot's corners.
+        a, b, c, d, e, f, g, h = cropped["inverse"]
+        for (x, y), (u, v) in zip(cropped["polygon"], self.UNIT):
+            w = g * x + h * y + 1
+            self.assertAlmostEqual((a * x + b * y + c) / w, u)
+            self.assertAlmostEqual((d * x + e * y + f) / w, v)
+
+    def test_device_box_is_shared_and_ignores_invisible_specks(self):
+        dark = Image.new("RGBA", (40, 30))
+        dark.paste((20, 20, 20, 255), (6, 5, 34, 26))
+        dark.paste((20, 20, 20, 8), (4, 5, 6, 26))        # at the noise level: invisible
+        light = Image.new("RGBA", (40, 30))
+        light.paste((200, 200, 200, 255), (5, 6, 33, 25))
+        light.putpixel((0, 0), (255, 255, 255, 255))      # a lone stray pixel
+        self.assertEqual(folded.device_box([dark, light]), ((5, 5, 34, 26), 255))
+        self.assertEqual(folded.device_box([dark]), ((6, 5, 34, 26), 8))
+
+    def test_built_pose_is_cropped_to_the_device_with_its_geometry(self):
+        # A 100x80 template: a device with a 20 and 16 pixel border around it, and a
+        # 40x36 display that three side-by-side quads fill without distortion.
+        display = (30, 22, 70, 58)
+        columns = (0, 16, 24, 40)
+        before = [(x, y) for y in (0, 36) for x in columns]
+        after = [(x + display[0], y + display[1]) for x, y in before]
+        descriptor = warp_descriptor((0, 0, 40, 0, 40, 36, 0, 36), before, after,
+                                     [(0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6)])
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for color, shade, body in (("Night Sky", 20, (20, 16, 90, 70)), ("Star White", 200, (20, 17, 89, 70))):
+                write_psd(root / f"iPhone Duo - {color} - Inner Partially Open Portrait.psd", (100, 80), [
+                    psd_layer("Hardware", body, (shade, shade, shade, 255)),
+                    psd_layer("Screen Content ", display, (1, 2, 3, 255), descriptor=descriptor,
+                              mask=(display, 0, Image.new("L", (40, 36), 255))),
+                    psd_layer("black", (40, 30, 44, 34), (9, 9, 9, 40), blend_if=(0, 0, 10, 30)),
+                    psd_layer("dark", (40, 30, 44, 34), (8, 8, 8, 50), blend_if=(10, 30, 60, 90)),
+                    psd_layer("light", (40, 30, 44, 34), (7, 7, 7, 60), blend_if=(60, 90, 255, 255)),
+                ], (42, 43, 44, 255))
+            with contextlib.redirect_stdout(io.StringIO()):
+                entry = folded.build_view(root, root, "Portrait", [[22, 17]])
+            warp = entry["warp"]
+            images = {}
+            for color in ("Night Sky", "Star White"):
+                with Image.open(root / f"{LAPTOP} {color}.png") as image:
+                    images[color] = image.convert("RGBA")
+            with Image.open(root / f"{LAPTOP}_mask.png") as image:
+                mask = image.convert("L")
+            with Image.open(root / f"{LAPTOP}_camera.png") as image:
+                camera_size = (image.width // 3, image.height)
+
+            # The scaled template was 47x37, with a border of about 9 and 7 pixels.
+            # None of it is left around the device.
+            size = images["Night Sky"].size
+            self.assertEqual(images["Star White"].size, size)
+            self.assertEqual(mask.size, size)
+            self.assertTrue(size[0] < 40 and size[1] < 32)
+            self.assertEqual(folded.device_box(images.values())[0], (0, 0, *size))
+            # The mask, the regions, and the camera moved together with the crop.
+            left, top, right, bottom = mask.point(lambda value: 255 if value > 127 else 0).getbbox()
+            corners = [point for region in warp["regions"] for point in region["polygon"]]
+            self.assertAlmostEqual(min(x for x, _ in corners), left, delta=1)
+            self.assertAlmostEqual(min(y for _, y in corners), top, delta=1)
+            self.assertAlmostEqual(max(x for x, _ in corners), right, delta=1)
+            self.assertAlmostEqual(max(y for _, y in corners), bottom, delta=1)
+            # The camera's center is 12 and 10 template pixels into the display.
+            self.assertAlmostEqual(warp["camera"]["x"] + camera_size[0] / 2, left + 12 * 47 / 100, delta=1)
+            self.assertAlmostEqual(warp["camera"]["y"] + camera_size[1] / 2, top + 10 * 37 / 80, delta=1)
+            self.assertTrue(0 < warp["reflectionSpan"][0] < warp["reflectionSpan"][1] < len(warp["reflections"]["Night Sky"]))
+            folded.check_not_magnified(warp["regions"], (22, 17))
+
+            # Through the CLI, a screenshot fills the display and nothing else.
+            Image.new("RGB", (22, 17), "red").save(root / "input.png")
+            result, _ = frames.frame_screenshot(root / "input.png", root, {"variants": {LAPTOP: entry}},
+                                                force_device=LAPTOP, color_arg="Night Sky")
+            self.assertEqual(result.size, size)
+            away_from_camera = (right - 4, bottom - 4)
+            self.assertEqual(result.getpixel(away_from_camera), (255, 0, 0, 255))
+            self.assertEqual(result.getpixel((left + 3, top + 3)), (255, 0, 0, 255))
+            self.assertEqual(result.getpixel((left - 3, (top + bottom) // 2))[:3], (20, 20, 20))
+            self.assertEqual(result.getpixel((right + 2, (top + bottom) // 2))[:3], (20, 20, 20))
+            self.assertNotEqual(result.getpixel((warp["camera"]["x"] + camera_size[0] // 2,
+                                                 warp["camera"]["y"] + camera_size[1] // 2)), (255, 0, 0, 255))
 
     def test_reads_layers_masks_blend_ranges_and_preview_from_a_psd(self):
         mask = Image.new("L", (5, 4), 255)
