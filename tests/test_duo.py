@@ -82,7 +82,11 @@ class DuoTests(unittest.TestCase):
                 frames.resolve_frame_metadata(*size, root, catalog, force_device="iPhone Duo Book Pose")
             self.assertNotIn("iPhone Duo Book Pose", frames.build_device_name_index({"variants": {}}))
             # A hand-edited catalog reports an error the CLI can print, not a traceback.
-            del warp["inputSizes"]
+            sizes = warp.pop("inputSizes")
+            with self.assertRaisesRegex(ValueError, "incomplete warp entry"):
+                frames.frame_screenshot(root / "input.png", root, catalog, force_device=BOOK, color_arg="Star White")
+            warp["inputSizes"] = sizes
+            warp["reflections"] = None
             with self.assertRaisesRegex(ValueError, "incomplete warp entry"):
                 frames.frame_screenshot(root / "input.png", root, catalog, force_device=BOOK, color_arg="Star White")
 
@@ -313,6 +317,24 @@ class DuoTests(unittest.TestCase):
             self.assertEqual(frames.get_color(pose, None, {"iPhone Duo Outer": "Star White"}), "Night Sky")
         self.assertEqual(frames.get_color("iPhone Duo Inner Portrait", None,
                                           {"iPhone Duo Inner Partially Open": "Star White"}), "Night Sky")
+
+    def test_color_picker_leaves_an_untouched_pose_following_the_inner_display(self):
+        pose, inner = "iPhone Duo Inner Partially Open", "iPhone Duo Inner"
+        colors = ["Night Sky", "Star White"]
+        devices = [(inner, colors), (pose, colors)]
+        selected = {inner: 1, pose: 1}
+        # Changing only the inner display must not pin the pose to a color.
+        self.assertEqual(frames.color_defaults_to_save(devices, selected, {}, {inner}), {inner: "Star White"})
+        # Picking a color for the pose, or already having one saved, keeps its own entry.
+        self.assertEqual(frames.color_defaults_to_save(devices, selected, {}, {pose})[pose], "Star White")
+        self.assertEqual(frames.color_defaults_to_save(devices, selected, {pose: "Night Sky"}, set())[pose], "Star White")
+
+    def test_variants_list_matches_earlier_releases_on_packs_without_newer_frames(self):
+        # Only a primary whose alternatives are all poses reports no variants.
+        self.assertEqual(frames.installed_variants("Watch Ultra 3", {"variants": {}}), ["Watch Ultra 3"])
+        self.assertEqual(frames.installed_variants("iPhone Duo Inner Landscape", {"variants": {}}), [])
+        self.assertEqual(frames.installed_variants("iPhone Duo Inner Landscape", {"variants": {BOOK: {}}}),
+                         ["iPhone Duo Inner Landscape", BOOK])
 
     @mock.patch.object(frames.C, "enabled", False)
     def test_list_colors_and_doctor_present_the_poses_a_pack_provides(self):

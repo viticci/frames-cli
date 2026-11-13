@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.7.2 — __RELEASE_DATE__
+## 1.7.2 — 2026-11-13
 
-Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.2 adds two partially open iPhone Duo poses for screenshots, and moves to asset pack 4.2.2. Run `frames setup` after updating to download it.
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.2 adds two partially open iPhone Duo poses for screenshots, and moves to asset pack 4.2.2. The Apple Frames shortcut 4.2.2 uses the same pack. Run `frames setup` after updating to download it.
 
 ### iPhone Duo Book Pose and Laptop Pose
 
@@ -17,7 +17,7 @@ Thanks to [Frank Rupprecht](https://github.com/frankschlegel) ([#14](https://git
   ```
 
 - Frames bends the screenshot across the fold with the perspective from Apple's Photoshop templates, then adds the reflection and the camera from the same templates.
-- Framed images are __BOOK_CANVAS__ pixels for Book Pose and __LAPTOP_CANVAS__ pixels for Laptop Pose. Screenshots are never upscaled.
+- Framed images are 2564 × 2026 pixels for Book Pose and 2064 × 1560 pixels for Laptop Pose. Screenshots are never upscaled.
 - The poses are for still images. `frames video` stops with a message that they are available for screenshots only.
 - The poses use your saved default color for iPhone Duo Inner until you pick one for them. `frames colors` lists them once your pack has them, and `frames list-colors "Book Pose"` finds their finishes by short name.
 - With an older pack, asking for a pose tells you the pack predates it and to run `frames setup`. `frames doctor` notes the same.
@@ -28,11 +28,11 @@ Thanks to [Frank Rupprecht](https://github.com/frankschlegel) ([#14](https://git
 
 ### Asset pack 4.2.2
 
-`frames setup` now downloads [AppleFrames422.zip](__PACK_URL__), pack version 4.2.2. It adds the pose frames, screen masks, and camera layers to pack 4.2.1, for __PACK_PNG_COUNT__ PNGs in total. Every file from 4.2.1 is byte-identical, and the catalog only gains the two pose entries.
+`frames setup` now downloads [AppleFrames422.zip](https://cdn.macstories.net/images/uploads/2026/11/13/appleframes422-1794588278649-fcc6c33965.zip), pack version 4.2.2. It adds the pose frames, screen masks, and camera layers to pack 4.2.1, for 311 PNGs in total. Every file from 4.2.1 is byte-identical, and the catalog only gains the two pose entries.
 
-- The Apple Frames shortcut reads the same pack. It does not use the new entries, so its output does not change.
+- The Apple Frames shortcut 4.2.2 reads the same pack. It does not use the new entries, so its output does not change. Shortcut 4.2.1 puts pack 4.2.1 back the next time it runs, so update the shortcut too.
 - `scripts/build_duo_folded_assets.py` builds the pose files from Apple's Photoshop templates. `scripts/release_pack.py` checks a new pack against the one it replaces and writes the ZIP.
-- The ZIP is __PACK_BYTES__ bytes with SHA-256 `__PACK_SHA256__`.
+- The ZIP is 52,516,512 bytes with SHA-256 `2e6082b101829e4bc939194123f2bf2a53a9b686454d28143e98e283bd734114`.
 
 ## 1.7.1 — 2026-11-10
 

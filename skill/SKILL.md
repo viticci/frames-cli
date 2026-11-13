@@ -205,7 +205,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `__PACK_URL__` (AppleFrames422.zip, __PACK_BYTES__ bytes, SHA-256 `__PACK_SHA256__`), pack version 4.2.2. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo and its Book and Laptop poses, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has __PACK_PNG_COUNT__ PNGs. Device frames are cropped to the device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices or poses, re-run `frames setup` to update it.
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/13/appleframes422-1794588278649-fcc6c33965.zip` (AppleFrames422.zip, 52,516,512 bytes, SHA-256 `2e6082b101829e4bc939194123f2bf2a53a9b686454d28143e98e283bd734114`), pack version 4.2.2. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo and its Book and Laptop poses, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has 311 PNGs. Device frames are cropped to the device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices or poses, re-run `frames setup` to update it.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - `--assets` and `setup PATH` take a local folder, not a URL or ZIP file. The separate `Frames-Duo-Experimental` pack from 1.4.1 is superseded; switch users to the standard pack with `frames setup`.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
@@ -241,7 +241,7 @@ Two partially open poses frame inner-display screenshots on a folded phone. They
 | `iPhone Duo Book Pose` | 2853 × 2007 or 2670 × 1878 | iPhone Duo Inner Partially Open Landscape |
 | `iPhone Duo Laptop Pose` | 2007 × 2853 or 1878 × 2670 | iPhone Duo Inner Partially Open Portrait |
 
-Both have Night Sky (default) and Star White finishes, and use the saved default color of iPhone Duo Inner until they have their own. Any other input size fails with an error that names the accepted sizes. Framed images are __BOOK_CANVAS__ pixels (Book Pose) and __LAPTOP_CANVAS__ pixels (Laptop Pose); screenshots are never upscaled. The poses are for still images: `frames video` rejects them as available for screenshots only. JSON output reports the full frame name as `device`. `frames list` shows the poses under manual frames when the pack has them; with an older pack, `--device "iPhone Duo Book Pose"` fails with an error that says to run `frames setup`.
+Both have Night Sky (default) and Star White finishes, and use the saved default color of iPhone Duo Inner until they have their own. Any other input size fails with an error that names the accepted sizes. Framed images are 2564 × 2026 pixels (Book Pose) and 2064 × 1560 pixels (Laptop Pose); screenshots are never upscaled. The poses are for still images: `frames video` rejects them as available for screenshots only. JSON output reports the full frame name as `device`. `frames list` shows the poses under manual frames when the pack has them; with an older pack, `--device "iPhone Duo Book Pose"` fails with an error that says to run `frames setup`.
 
 ```bash
 frames -d "iPhone Duo Book Pose" inner-landscape.png
