@@ -43,7 +43,29 @@ xcrun simctl io booted screenshot --display=1 outer.png   # outer display
 xcrun simctl io booted screenshot --display=3 inner.png   # inner display
 ```
 
-Screenshots follow the interface orientation, so rotate the simulator for landscape. Apps built for iPhone-size screens, like Settings, stay in portrait on the outer display; Safari rotates. Book posture produces the same inner screenshot as Open. Apple's artwork has no half-folded view.
+Screenshots follow the interface orientation, so rotate the simulator for landscape. Apps built for iPhone-size screens, like Settings, stay in portrait on the outer display; Safari rotates. Book posture captures the inner display as a flat image at the same resolution as Open. Some apps adjust their layout in Book posture.
+
+## Partially open poses
+
+The partially open poses are manual frames for inner-display screenshots. They use the perspective geometry and reflections sampled from the original previews in Apple's Photoshop templates. Select Book Pose for landscape screenshots or Laptop Pose for portrait screenshots:
+
+```bash
+frames -d "iPhone Duo Book Pose" -c "Star White" inner-landscape.png
+frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
+```
+
+`iPhone Duo Book Pose` and `iPhone Duo Laptop Pose` are aliases for `iPhone Duo Inner Partially Open Landscape` and `iPhone Duo Inner Partially Open Portrait`.
+
+The standard pack linked above predates these poses. To add them locally, mount Apple's Duo artwork download and run the asset builder with Python, Pillow, and ImageMagick (`magick` on your PATH). ImageMagick is a new build-time dependency for extracting Apple's PSD layers. Once the pack is built, `frames setup` can install a published copy directly, and screenshot framing uses Pillow.
+
+```bash
+python3 scripts/build_duo_folded_assets.py \
+  --source /Volumes/Bezel-iPhone-Duo/Photoshop \
+  --base-assets /path/to/Frames \
+  --output /path/to/Frames-with-folded-Duo
+```
+
+Use `frames --assets /path/to/Frames-with-folded-Duo -d "iPhone Duo Book Pose" inner-landscape.png` to try the pack. Both poses are available for still images.
 
 ## Videos
 

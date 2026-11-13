@@ -27,7 +27,7 @@ from functools import lru_cache
 from pathlib import Path, PurePosixPath
 
 try:
-    from PIL import Image, UnidentifiedImageError
+    from PIL import Image, ImageChops, ImageDraw, UnidentifiedImageError
 except ImportError:
     print("Error: Pillow is required. Install with: pip3 install Pillow", file=sys.stderr)
     sys.exit(1)
@@ -562,6 +562,8 @@ FRAME_COLORS = {
     "iPhone Duo Outer Landscape":  ["Night Sky", "Star White"],
     "iPhone Duo Inner Portrait":   ["Night Sky", "Star White"],
     "iPhone Duo Inner Landscape":  ["Night Sky", "Star White"],
+    "iPhone Duo Inner Partially Open Landscape": ["Night Sky", "Star White"],
+    "iPhone Duo Inner Partially Open Portrait": ["Night Sky", "Star White"],
     "iPhone Duo Outer Open":       ["Night Sky", "Star White"],
     "iPhone 18 Pro Portrait":      ["Burgundy", "Glacier", "Silver", "Black"],
     "iPhone 18 Pro Landscape":     ["Burgundy", "Glacier", "Silver", "Black"],
@@ -605,6 +607,8 @@ FRAME_COLORS = {
 # Frame Variants: the first entry installed in the asset pack is the default.
 # Older packs without iPhone 18 Pro fall back to the next entry.
 FRAME_VARIANTS = {
+    "iPhone Duo Inner Landscape": ["iPhone Duo Inner Landscape", "iPhone Duo Inner Partially Open Landscape"],
+    "iPhone Duo Inner Portrait": ["iPhone Duo Inner Portrait", "iPhone Duo Inner Partially Open Portrait"],
     "iPhone 17 Portrait":          ["iPhone 18 Pro Portrait", "iPhone 17 Pro Portrait", "iPhone 17 Portrait", "iPhone 16 Pro Portrait"],
     "iPhone 17 Landscape":         ["iPhone 18 Pro Landscape", "iPhone 17 Pro Landscape", "iPhone 17 Landscape", "iPhone 16 Pro Landscape"],
     "iPhone 17 Pro Max Portrait":  ["iPhone 18 Pro Max Portrait", "iPhone 17 Pro Max Portrait", "iPhone 16 Pro Max Portrait"],
@@ -873,6 +877,41 @@ def composite(screenshot, frame, x, y):
     canvas.paste(screenshot, (x, y))
     return Image.alpha_composite(canvas, frame)
 
+
+def composite_warped(screenshot, frame, mask, overlay, warp, color):
+    """Project the screenshot onto the display and composite it with the hardware."""
+    if mask.size != frame.size or overlay.size != frame.size:
+        raise ValueError("Warped frame, display mask, and overlay must have the same dimensions")
+    display = Image.new("RGBA", frame.size)
+    for region in warp["regions"]:
+        polygon = [tuple(point) for point in region["polygon"]]
+        inverse = region["inverse"]
+        # The inverse maps destination pixels to normalized screenshot coordinates.
+        coefficients = [
+            *(value * screenshot.width for value in inverse[:3]),
+            *(value * screenshot.height for value in inverse[3:6]),
+            *inverse[6:],
+        ]
+        projected = screenshot.transform(frame.size, Image.PERSPECTIVE, coefficients, Image.BICUBIC)
+        clip = Image.new("L", frame.size)
+        ImageDraw.Draw(clip).polygon(polygon, fill=255)
+        projected.putalpha(ImageChops.multiply(projected.getchannel("A"), clip))
+        display.alpha_composite(projected)
+    opacity = ImageChops.multiply(display.getchannel("A"), mask.getchannel("R"))
+    hardware = frame.convert("RGB")
+    illuminated = display.convert("RGB")
+    if warp.get("blend", "screen") == "screen":
+        illuminated = ImageChops.screen(hardware, illuminated)
+    reflection = warp.get("reflections", {}).get(color)
+    if reflection:
+        size = (1, len(reflection)) if warp.get("reflectionAxis") == "y" else (len(reflection), 1)
+        strip = Image.frombytes("L", size, bytes(reflection))
+        reflection_map = strip.resize(frame.size, Image.BILINEAR)
+        illuminated = ImageChops.add(illuminated, reflection_map.convert("RGB"))
+    result = Image.composite(illuminated, hardware, opacity).convert("RGBA")
+    result.putalpha(frame.getchannel("A"))
+    return Image.alpha_composite(result, overlay)
+
 def _body_rows(img):
     """Top and bottom rows of an image's visible pixels (the device, not its padding)."""
     box = img.getchannel("A").getbbox() if img.mode == "RGBA" else None
@@ -978,6 +1017,12 @@ def build_device_name_index(device_dict):
             index[entry["name"]] = entry
     for name, entry in device_dict.get("variants", {}).items():
         index[name] = entry
+    book_pose = index.get("iPhone Duo Inner Partially Open Landscape")
+    if book_pose is not None:
+        index.setdefault("iPhone Duo Book Pose", book_pose)
+    laptop_pose = index.get("iPhone Duo Inner Partially Open Portrait")
+    if laptop_pose is not None:
+        index.setdefault("iPhone Duo Laptop Pose", laptop_pose)
     return index
 
 
@@ -1028,7 +1073,18 @@ def frame_screenshot(
     # 6. Apply mask
     has_mask = entry.get("mask") == "yes"
     mask_missing = False
-    if has_mask:
+    warp = entry.get("warp")
+    if warp:
+        if [w, h] not in warp["inputSizes"]:
+            sizes = " or ".join(f"{width}x{height}" for width, height in warp["inputSizes"])
+            raise ValueError(f"{model_name} requires an iPhone Duo inner screenshot ({sizes})")
+        mask_name = frame_path.stem if warp.get("maskByColor") else model_name
+        mask = load_mask(assets_dir, mask_name)
+        if mask is None:
+            raise FileNotFoundError(f"Display mask missing for {model_name}")
+        overlay = _load_rgba_asset_cached(str(assets_dir / f"{model_name}_overlay.png"))
+        result = composite_warped(img, frame, mask, overlay, warp, color)
+    elif has_mask:
         mask = load_mask(assets_dir, model_name)
         if mask:
             if asset_is_sideways(model_name, mask.size):
@@ -1046,8 +1102,9 @@ def frame_screenshot(
                   f"corners may show screenshot bleed.", file=sys.stderr)
 
     # 7. Composite
-    x, y = int(entry["x"]), int(entry["y"])
-    result = composite(img, frame, x, y)
+    if not warp:
+        x, y = int(entry["x"]), int(entry["y"])
+        result = composite(img, frame, x, y)
 
     info = {
         "source": str(img_path),
@@ -1536,6 +1593,8 @@ def resolve_frame_metadata(
         device_index=device_index,
         verbose=verbose,
     )
+    if entry.get("warp"):
+        raise ValueError(f"{model_name} is available for screenshots only")
     has_colors = entry.get("colors") == "yes"
     color = get_color(model_name, color_arg, user_defaults=user_defaults, strict=strict_color) if has_colors else None
     frame_path = _frame_asset_path(assets_dir, model_name, color)
