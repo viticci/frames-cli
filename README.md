@@ -131,7 +131,7 @@ frames -c "Rose Pink" homeview.png
 frames -d "HomeView Wall Mounted" homeview.png
 ```
 
-Frames **1.8.0 or later** with asset pack 4.3.0 is required; run `frames setup` once after updating. See the [HomeView guide](docs/homeview.md) for capturing the screen.
+Frames **1.8.0 or later** with asset pack 4.3.1 is required; run `frames setup` once after updating. See the [HomeView guide](docs/homeview.md) for capturing the screen.
 
 ### iPhone Duo
 

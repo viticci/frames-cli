@@ -135,21 +135,24 @@ def build_frames(renders, view):
 
 
 def catalog_entries(catalog):
-    """Detect 1088 x 1088 and QuickTime's 1080 x 1080; keep the wall mount manual."""
+    """Detect 1088 x 1088 and QuickTime's 1080 x 1080; keep the wall mount manual.
+
+    Every entry scales its input to the opening, so a QuickTime capture fills
+    the wall mount too, which is only ever selected by name."""
     for view in VIEWS:
         ox, oy = view["opening"]
         entry = {"name": view["name"], "x": str(ox), "y": str(oy),
-                 "mask": "yes", "colors": "yes", "physicalHeight": view["physicalHeight"]}
+                 "mask": "yes", "colors": "yes", "physicalHeight": view["physicalHeight"],
+                 "resizeWidth": str(SCREEN), "resizeHeight": str(SCREEN)}
         if view.get("manual"):
             if view["name"] in catalog["variants"]:
                 raise ValueError("Base already defines {}".format(view["name"]))
             catalog["variants"][view["name"]] = entry
             continue
-        scaled = dict(entry, resizeWidth=str(SCREEN), resizeHeight=str(SCREEN))
-        for size, item in ((SCREEN, entry), (QUICKTIME, scaled)):
+        for size in (SCREEN, QUICKTIME):
             if str(size) in catalog:
                 raise ValueError("Base already defines width {}".format(size))
-            catalog[str(size)] = {"overlap": {str(size): item}}
+            catalog[str(size)] = {"overlap": {str(size): dict(entry)}}
     return catalog
 
 

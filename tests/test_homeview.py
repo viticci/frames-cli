@@ -43,8 +43,10 @@ class HomeViewTests(unittest.TestCase):
         # QuickTime mirrors at 1080 x 1080; it fills the same opening.
         entry, name, _, _ = frames.resolve_device_entry(1080, 1080, catalog)
         self.assertEqual((name, frames.resize_target(entry, 1080, 1080)), ("HomeView", (1088, 1088)))
-        entry, name, _, _ = frames.resolve_device_entry(1088, 1088, catalog, force_device="HomeView Wall Mounted")
-        self.assertEqual(name, "HomeView Wall Mounted")
+        # Wall Mounted is only chosen by name, and QuickTime captures still fill it.
+        for size, target in ((1088, None), (1080, (1088, 1088))):
+            entry, name, _, _ = frames.resolve_device_entry(size, size, catalog, force_device="HomeView Wall Mounted")
+            self.assertEqual((name, frames.resize_target(entry, size, size)), ("HomeView Wall Mounted", target))
         with self.assertRaises(ValueError):
             frames.resolve_device_entry(1080, 1920, catalog)
         for view in builder.VIEWS:

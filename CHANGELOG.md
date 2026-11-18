@@ -2,24 +2,25 @@
 
 ## 1.8.0 — 2026-11-18
 
-Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.8.0 adds Apple HomeView and moves to asset pack 4.3.0. Run `frames setup` after updating to download it.
+Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.8.0 adds Apple HomeView and moves to asset pack 4.3.1. Run `frames setup` after updating to download it.
 
 ### Apple HomeView
 
 - Frames HomeView screenshots and recordings: the tabletop model in Silver, Starlight, Rose Pink, and Space Gray, and the wall-mounted model in Silver and Space Gray. Silver is the default.
-- 1088 × 1088 inputs, the display's native size and what the [HomeView Capture](https://github.com/DylanMcD8/HomeView-Capture) app saves, frame at 1:1. QuickTime's 1080 × 1080 captures scale up to the same opening.
-- The tabletop model is automatic. Select the wall-mounted model with `--device "HomeView Wall Mounted"`.
+- 1088 × 1088 inputs, the display's native size and what the [HomeView Capture](https://github.com/DylanMcD8/HomeView-Capture) app saves, frame at 1:1.
+- The tabletop model is automatic. Select the wall-mounted model with `--device "HomeView Wall Mounted"`. QuickTime's 1080 × 1080 captures scale up in both models, for screenshots and recordings.
 - Apple publishes no HomeView bezels. `scripts/build_homeview_assets.py` builds the frames from Apple Store product images: it finds the display opening, removes the picture on it, and scales each image so the opening is exactly 1088 × 1088.
 - `frames doctor` notes when the pack predates HomeView.
 
-### Asset pack 4.3.0
+### Asset pack 4.3.1
 
-`frames setup` now downloads [AppleFrames430.zip](https://cdn.macstories.net/images/uploads/2026/11/18/appleframes430-1795035134596-3d4dd697cd.zip), pack version 4.3.0.
+`frames setup` now downloads [AppleFrames431.zip](https://cdn.macstories.net/images/uploads/2026/11/18/appleframes431-1795036082113-06f3c2ecbf.zip), pack version 4.3.1.
 
 - Adds 6 HomeView frames and 2 screen masks to pack 4.2.2, for 319 PNGs. Every file from 4.2.2 is byte-identical, and the catalog only gains the HomeView entries.
-- The Apple Frames shortcut 4.2.2 puts pack 4.2.2 back the next time it runs, which removes HomeView until `frames setup` runs again. Update the shortcut to 4.3.0 with this release.
+- The Apple Frames shortcut 4.2.2 puts pack 4.2.2 back the next time it runs, which removes HomeView until `frames setup` runs again. Update the shortcut to 4.3.1 with this release.
 - `scripts/release_pack.py` now accepts new screenshot sizes as well as manual variants. `--added` names frames instead of variants.
-- The ZIP is 55,029,357 bytes with SHA-256 `5ef51bf55e7daad1513ac72eaaf838d8e39be10110f24283439655c4ea7f8b7f`.
+- Pack 4.3.0, a test build shared before release, left 1080 × 1080 captures unscaled in the wall-mounted frame. If you installed it, run `frames setup` again.
+- The ZIP is 55,029,373 bytes with SHA-256 `97c0009a9c0de1bd635bae74f2906d3036eadfe4cededc4bef27ab9894a5ad08`.
 
 ## 1.7.3 — 2026-11-13
 
