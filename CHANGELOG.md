@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Frames adds Apple HomeView. It needs asset pack 4.3.0.
+
+### Apple HomeView
+
+- Frames HomeView screenshots and recordings: the tabletop model in Silver, Starlight, Rose Pink, and Space Gray, and the wall-mounted model in Silver and Space Gray. Silver is the default.
+- 1088 × 1088 inputs, the display's native size and what the [HomeView Capture](https://github.com/DylanMcD8/HomeView-Capture) app saves, frame at 1:1. QuickTime's 1080 × 1080 captures scale up to the same opening.
+- The tabletop model is automatic. Select the wall-mounted model with `--device "HomeView Wall Mounted"`.
+- Apple publishes no HomeView bezels. `scripts/build_homeview_assets.py` builds the frames from Apple Store product images: it finds the display opening, removes the picture on it, and scales each image so the opening is exactly 1088 × 1088.
+- `frames doctor` notes when the pack predates HomeView.
+
+### Asset pack 4.3.0
+
+- Adds 6 HomeView frames and 2 screen masks to pack 4.2.2, for 319 PNGs. Every file from 4.2.2 is byte-identical, and the catalog only gains the HomeView entries.
+- `scripts/release_pack.py` now accepts new screenshot sizes as well as manual variants. `--added` names frames instead of variants.
+
 ## 1.7.3 — 2026-11-13
 
 Frames adds Apple device bezels to screenshots and screen recordings from the command line. Version 1.7.3 frames screen recordings in the two partially open iPhone Duo poses. It uses asset pack 4.2.2, so there is nothing new to download.

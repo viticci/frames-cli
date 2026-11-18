@@ -366,7 +366,7 @@ class DuoTests(unittest.TestCase):
                         contextlib.redirect_stdout(output):
                     frames.cmd_doctor(Namespace(assets=str(root), json=True))
                 notes = " ".join(json.loads(output.getvalue())["notes"])
-                self.assertEqual("the iPhone Duo Book and Laptop poses. Run `frames setup`" in notes, not include_poses)
+                self.assertEqual("the iPhone Duo Book and Laptop poses" in notes, not include_poses)
                 self.assertNotIn("predates iPhone Duo", notes)
 
                 # Asking for a pose an older pack lacks says how to get it.

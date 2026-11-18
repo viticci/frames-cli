@@ -51,6 +51,7 @@ LATEST_PACK_FRAMES = {
     "iPad mini (A20 Pro)": "iPad mini A20 Pro Portrait",
     "Apple Watch Ultra 4": "Watch Ultra 4",
     "the iPhone Duo Book and Laptop poses": "iPhone Duo Inner Partially Open Portrait",
+    "Apple HomeView": "HomeView",
 }
 LARGE_IMAGE_WARN_DIMENSION = 20000
 LARGE_IMAGE_MAX_DIMENSION = 50000
@@ -602,6 +603,8 @@ FRAME_COLORS = {
     "iMac M4":                     ["Silver", "Blue", "Green", "Orange", "Pink", "Purple", "Yellow"],
     "Studio Display":              ["Light", "Dark"],
     "Studio Display XDR":          ["Light", "Dark"],
+    "HomeView":                    ["Silver", "Starlight", "Rose Pink", "Space Gray"],
+    "HomeView Wall Mounted":       ["Silver", "Space Gray"],
     "Watch Series 11 42":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
     "Watch Series 11 46":           ["Aluminum Jet Black + Sport Band Black", "Aluminum Jet Black + Sport Loop Dark Gray", "Aluminum Rose Gold + Sport Band Light Blush", "Aluminum Rose Gold + Sport Loop Purple Fog", "Aluminum Silver + Sport Band Neon Yellow", "Aluminum Silver + Sport Band Purple Fog", "Aluminum Silver + Sport Loop Forest", "Aluminum Silver + Sport Loop Neon Yellow", "Aluminum Space Gray + Sport Band Anchor Blue", "Aluminum Space Gray + Sport Band Black", "Aluminum Space Gray + Sport Loop Anchor Blue", "Aluminum Space Gray + Sport Loop Forest", "Titanium Gold + Magnetic Link Sage Gray", "Titanium Gold + Milanese Loop", "Titanium Gold + Sport Band Light Blush", "Titanium Gold + Sport Band Purple Fog", "Titanium Natural + Magnetic Link Caramel", "Titanium Natural + Milanese Loop", "Titanium Natural + Sport Band Stone Gray", "Titanium Slate + Magnetic Link Navy", "Titanium Slate + Milanese Loop", "Titanium Slate + Sport Band Black"],
 }
@@ -3087,7 +3090,7 @@ def cmd_list(args):
     categories = {
         "iPhone Duo": [], "iPhone 17": [], "iPhone Air": [], "iPhone 16": [],
         "iPhone 12-13": [], "iPhone 8": [],
-        "iPad": [], "MacBook": [], "iMac": [], "Studio Display": [], "Watch": [],
+        "iPad": [], "MacBook": [], "iMac": [], "Studio Display": [], "Watch": [], "HomeView": [],
     }
 
     primaries = set()

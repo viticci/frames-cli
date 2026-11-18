@@ -95,7 +95,7 @@ class ReleasePackTests(unittest.TestCase):
             "Changed since": recolor,
             "Missing from": lambda: (self.built / "Phone.png").unlink(),
             "changes more than": edit_catalog(lambda catalog: catalog["100"].update(x="2")),
-            "Expected added variants": edit_catalog(lambda catalog: catalog["variants"].update(Extra={"name": "Extra"})),
+            "Expected added frames": edit_catalog(lambda catalog: catalog["variants"].update(Extra={"name": "Extra"})),
             "not valid JSON": edit_catalog(lambda catalog: catalog["variants"][POSE]["warp"].update(bad=float("nan"))),
             "does not belong": lambda: (self.built / "notes.png").write_bytes(b""),
         }
