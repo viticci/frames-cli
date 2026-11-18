@@ -1,6 +1,6 @@
 # Apple HomeView
 
-Frames adds Apple HomeView bezels to screenshots and screen recordings: the tabletop model in Silver, Starlight, Rose Pink, and Space Gray, and the wall-mounted model in Silver and Space Gray. They need asset pack 4.3.0.
+Frames adds Apple HomeView bezels to screenshots and screen recordings: the tabletop model in Silver, Starlight, Rose Pink, and Space Gray, and the wall-mounted model in Silver and Space Gray. They need Frames 1.8.0 and asset pack 4.3.0. Run `frames setup` after updating to download the pack.
 
 Apple publishes no HomeView bezels. These frames come from Apple's product images on the Apple Store, with the screen picture removed. They are unofficial.
 

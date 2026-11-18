@@ -5,7 +5,7 @@ description: Frame screenshots and screen recordings with the `frames` CLI. Use 
 
 # Apple Frames CLI
 
-`frames` 1.7.3 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
+`frames` 1.8.0 is a single-file Python CLI that applies Apple device bezels to screenshots and videos, auto-detects devices from input dimensions, applies masks when needed, and can merge multiple framed results. Video support uses external `ffmpeg` 5.1+ and `ffprobe` 5.1+ with no extra Python media stack.
 
 ## What Agents Should Know
 
@@ -206,7 +206,7 @@ Asset resolution order:
 
 Setup behavior:
 
-- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/13/appleframes422-1794588278649-fcc6c33965.zip` (AppleFrames422.zip, 52,516,512 bytes, SHA-256 `2e6082b101829e4bc939194123f2bf2a53a9b686454d28143e98e283bd734114`), pack version 4.2.2. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo and its Book and Laptop poses, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), and Apple Watch Ultra 4. It has 311 PNGs. Device frames are cropped to the device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices or poses, re-run `frames setup` to update it.
+- `frames setup` downloads the current asset archive from `https://cdn.macstories.net/images/uploads/2026/11/18/appleframes430-1795035134596-3d4dd697cd.zip` (AppleFrames430.zip, 55,029,357 bytes, SHA-256 `5ef51bf55e7daad1513ac72eaaf838d8e39be10110f24283439655c4ea7f8b7f`), pack version 4.3.0. It is the same pack the Apple Frames shortcut uses and covers iPhone 18 Pro, 18 Pro Max, iPhone Duo and its Book and Laptop poses, MacBook Pro with PROLED XDR Display, iPad mini (A20 Pro), Apple Watch Ultra 4, and Apple HomeView. It has 319 PNGs. Device frames are cropped to the device so canvases carry no empty border. If `frames doctor` notes that the pack predates one of these devices or poses, re-run `frames setup` to update it.
 - `frames setup /path/to/Frames` points the CLI at an existing asset folder instead of downloading.
 - `--assets` and `setup PATH` take a local folder, not a URL or ZIP file. The separate `Frames-Duo-Experimental` pack from 1.4.1 is superseded; switch users to the standard pack with `frames setup`.
 - The asset folder must contain `NewFrames.json`, `version.txt`, and the frame/mask PNGs.
@@ -251,7 +251,7 @@ frames -d "iPhone Duo Laptop Pose" -c "Star White" inner-portrait.png
 
 To capture from the simulator: `xcrun simctl io booted screenshot --display=1` for the outer display and `--display=3` for the inner display. Fold state comes from Device Hub's Closed, Book, and Open buttons. See the repository's `docs/iphone-duo.md` for capture, video, merge, and rebuild details.
 
-The standard v4 asset bundle used by `frames` 1.7.3 includes these primary families:
+The standard v4 asset bundle used by `frames` 1.8.0 includes these primary families:
 
 - iPhone: iPhone Duo (inner and outer displays), iPhone 18 Pro, iPhone 18 Pro Max, iPhone 17, iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 16, iPhone 16 Plus, iPhone 12-13 Pro, iPhone 12-13 Pro Max, iPhone 12-13 mini, iPhone 8 / 2020 SE
 - iPad: iPad mini A20 Pro, iPad mini 2021, iPad 2021, iPad Air 2020, iPad Pro 2018-2021 11-inch, iPad Pro 2018-2021 12.9-inch, iPad Pro 2024 11-inch, iPad Pro 2024 13-inch
