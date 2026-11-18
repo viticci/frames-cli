@@ -7,9 +7,10 @@ script copies the built pack to a new folder, sets version.txt, and stops unless
 
 - every file of the previous pack is present and byte-identical (NewFrames.json
   and version.txt aside);
-- every new file is a readable PNG that belongs to one of the added variants;
-- NewFrames.json, with the added variants removed, is byte-identical to the
-  previous catalog.
+- every new file is a readable PNG that belongs to one of the added frames;
+- NewFrames.json, with the entries for the added frames removed, is
+  byte-identical to the previous catalog. An added frame may be a manual
+  variant or a new screenshot size.
 
 The ZIP comes from write_archive, which wrote every published pack, so the
 same folder always gives the same bytes. Neither input is modified. Requires
@@ -56,8 +57,32 @@ def reject_constant(value):
     raise ValueError("NewFrames.json contains {}, which is not valid JSON".format(value))
 
 
+def frame_entries(catalog):
+    """Yield every frame entry in a catalog: by size, by size and height, and manual variants."""
+    for key, value in catalog.items():
+        if key == "variants":
+            yield from value.values()
+        else:
+            yield from value.get("overlap", {value.get("name"): value}).values()
+
+
+def without_frames(catalog, names):
+    """Return the catalog with every entry for the named frames removed."""
+    stripped = {}
+    for key, value in catalog.items():
+        if key == "variants":
+            stripped[key] = {k: v for k, v in value.items() if v.get("name") not in names}
+        elif "overlap" in value:
+            overlap = {k: v for k, v in value["overlap"].items() if v.get("name") not in names}
+            if overlap:
+                stripped[key] = dict(value, overlap=overlap)
+        elif value.get("name") not in names:
+            stripped[key] = value
+    return stripped
+
+
 def check_pack(built, base, added):
-    """Raise ValueError unless built is base plus the added variants and their PNGs."""
+    """Raise ValueError unless built is base plus the added frames and their PNGs."""
     for name in (CATALOG, VERSION):
         if name not in base or name not in built:
             raise ValueError("Both packs need {}".format(name))
@@ -73,21 +98,21 @@ def check_pack(built, base, added):
     if dump_catalog(catalog) != built[CATALOG]:
         raise ValueError("NewFrames.json is not written as json.dumps(catalog, indent=2) plus a newline")
     previous = json.loads(base[CATALOG].decode("utf-8"))
-    new_variants = [name for name in catalog["variants"] if name not in previous["variants"]]
-    if sorted(new_variants) != sorted(added):
-        raise ValueError("Expected added variants {}, found {}".format(sorted(added), sorted(new_variants)))
-    for name in added:
-        if catalog["variants"][name].get("name") != name:
-            raise ValueError("Variant {} has a different name field".format(name))
-    stripped = dict(catalog, variants={k: v for k, v in catalog["variants"].items() if k not in added})
-    if dump_catalog(stripped) != base[CATALOG]:
-        raise ValueError("NewFrames.json changes more than the added variants")
+    old_names = {entry.get("name") for entry in frame_entries(previous)}
+    new_names = {entry.get("name") for entry in frame_entries(catalog)} - old_names
+    if sorted(new_names) != sorted(added):
+        raise ValueError("Expected added frames {}, found {}".format(sorted(added), sorted(new_names)))
+    for key, entry in catalog["variants"].items():
+        if entry.get("name") in added and key != entry["name"]:
+            raise ValueError("Variant {} has a different name field".format(key))
+    if dump_catalog(without_frames(catalog, set(added))) != base[CATALOG]:
+        raise ValueError("NewFrames.json changes more than the added frames")
 
     new_files = sorted(set(built) - set(base))
     for name in new_files:
         owners = [variant for variant in added if name.startswith((variant + " ", variant + "_", variant + "."))]
         if not name.endswith(".png") or not owners:
-            raise ValueError("New file does not belong to an added variant: {}".format(name))
+            raise ValueError("New file does not belong to an added frame: {}".format(name))
         with Image.open(io.BytesIO(built[name])) as image:
             image.verify()
     for variant in added:
@@ -129,8 +154,8 @@ def main():
     parser.add_argument("built", type=Path, help="Built pack folder (read-only)")
     parser.add_argument("--base", required=True, type=Path, help="Previous pack: its published ZIP or a folder")
     parser.add_argument("--version", required=True, help="version.txt for the new pack, such as 4.2.2")
-    parser.add_argument("--added", required=True, action="append", metavar="VARIANT",
-                        help="Variant the new catalog adds; repeat for each one")
+    parser.add_argument("--added", required=True, action="append", metavar="FRAME",
+                        help="Frame name the new catalog adds; repeat for each one")
     parser.add_argument("--output", required=True, type=Path, help="New folder for the versioned pack")
     parser.add_argument("--archive", required=True, type=Path, help="New ZIP file, such as AppleFrames422.zip")
     args = parser.parse_args()

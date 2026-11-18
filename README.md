@@ -117,6 +117,22 @@ Frames frames MacBook Pro with PROLED XDR Display screenshots with Apple's offic
 frames -c "Space Black" proled.png
 ```
 
+### Apple HomeView
+
+Frames frames Apple HomeView screenshots and recordings with unofficial bezels made from Apple's product images: the tabletop model in Silver, Starlight, Rose Pink, and Space Gray, and the wall-mounted model in Silver and Space Gray.
+
+| Input width × height | Automatic frame |
+| --- | --- |
+| 1088 × 1088 | HomeView ([HomeView Capture](https://github.com/DylanMcD8/HomeView-Capture) screenshots) |
+| 1080 × 1080 | HomeView (QuickTime captures, scaled to 1088 × 1088) |
+
+```bash
+frames -c "Rose Pink" homeview.png
+frames -d "HomeView Wall Mounted" homeview.png
+```
+
+Frames **1.8.0 or later** with asset pack 4.3.1 is required; run `frames setup` once after updating. See the [HomeView guide](docs/homeview.md) for capturing the screen.
+
 ### iPhone Duo
 
 Frames **1.5.0 or later** frames iPhone Duo screenshots and recordings with Apple's official bezels in Night Sky and Star White. The artwork ships in the same standard asset pack as iPhone 18 Pro. Both displays work in portrait and landscape:
@@ -662,6 +678,7 @@ frames -f ~/screenshots/*.png
 | MacBook | Neo, Air M5 13"/15", Pro M5 14"/16", Pro 2021, Air 2020-2022, Pro 13 | Front-facing |
 | iMac | iMac M4 | 7 colors (Silver default) |
 | Studio Display | Studio Display, Studio Display XDR | 2 colors each (Light default); XDR is a variant |
+| HomeView | Tabletop, Wall Mounted | 4 colors tabletop, 2 wall-mounted (Silver default); unofficial frames from Apple product images; Wall Mounted is a manual frame |
 | Apple Watch | Ultra 4, Ultra 3, Ultra 2024, Series 11, Series 10, Series 7 | Including band combinations |
 
 Watch Ultra 4 supports 6 case + band combinations and Watch Ultra 3 supports 13. Watch Series 11 supports 22 case + band combinations per size. All devices that have landscape variants support both orientations.
