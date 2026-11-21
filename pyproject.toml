@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "frames-cli"
+dynamic = ["version"]
+description = "Frame screenshots and screen recordings with Apple product bezels"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = ["Pillow"]
+
+[project.urls]
+Repository = "https://github.com/viticci/frames-cli"
+
+[tool.setuptools]
+packages = []
+# Install the standalone executable used by the direct-download instructions.
+script-files = ["frames"]
